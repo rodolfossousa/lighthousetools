@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import logging
 from dictionaries import DICTIONARIES
 
 def extract_raw_data(client_name=None):
@@ -18,14 +19,14 @@ def extract_raw_data(client_name=None):
             spreadsheet = entry.get("spreadsheet")
             tabs = entry.get("tabs", [])
             for sheet_name in tabs:
-                print(f"Lendo: source={source_name} spreadsheet={spreadsheet} sheet={sheet_name}")
+                logging.info(f"Lendo: source={source_name} spreadsheet={spreadsheet} sheet={sheet_name}")
                 try:
                     df = pd.read_excel(spreadsheet, sheet_name=sheet_name, engine="openpyxl")
                     df['__source_spreadsheet'] = spreadsheet
                     df['__source_sheet'] = sheet_name
                     all_dfs.append(df)
                 except Exception as e:
-                    print(f"Erro ao ler a aba '{sheet_name}' da planilha '{spreadsheet}': {e}")
+                    logging.error(f"Erro ao ler a aba '{sheet_name}' da planilha '{spreadsheet}': {e}")
 
     if not all_dfs:
         raise ValueError("Nenhuma planilha encontrada para processar. Verifique o dictionaries.py e o nome do cliente.")
@@ -83,7 +84,7 @@ def get_template_enrollment_data(client_name=None):
     removed_duplicates = before_dedup - len(df)
     
     if removed_duplicates > 0:
-        print(f"Removidas {removed_duplicates} linhas duplicadas de templates (Template + type + attribute_name)")
+        logging.info(f"Removidas {removed_duplicates} linhas duplicadas de templates (Template + type + attribute_name)")
         
     df = df.drop(columns=['Template_norm', 'attribute_name_norm'])
     
@@ -103,7 +104,7 @@ def get_item_enrollment_data(client_name=None):
 
     # Replace en dashes with hyphens and trim strings
     df = df.replace('–', '-', regex=True)
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
 
     # Drop rows missing critical linkage
     df = df.dropna(subset=['Template', 'Equipamento'])
