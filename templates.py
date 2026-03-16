@@ -363,18 +363,43 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
             'default_value': None,
             'parent_id': subattribute['parent_id']
         }
+        
+        if pd.isna(data['parent_id']) or not data['parent_id']:
+            logging.error(f"Erro: parent_id não encontrado para o subatributo '{data['name']}' (Pai: '{subattribute['parent_name']}'). Verifique se o atributo pai foi criado corretamente.")
+            subattribute['status'] = 'failed_no_parent_id'
+            status['failed'] += 1
+            subattributes_status[f"{subattribute['parent_name']} | {subattribute['name']}"] = subattribute
+            continue
+
         data = fix_categories_uuid(data, categories, ws)
         # answer = input(f"Cadastrar subatributo {data['parent_id']} | {data['name']} ? Dados: {data}. Pressione Enter para continuar...")
         # if answer.lower() == 'n':
         #     print("Pulando...")
         #     continue
-        response = ws.post_template_attribute(template_id, data)
-        if not response:
+        try:
+            response = ws.post_template_attribute(template_id, data)
+            
+            is_success = False
+            if response and hasattr(response, 'status_code') and response.status_code in [200, 201, 202]:
+                is_success = True
+            elif isinstance(response, dict) and 'id' in response:
+                is_success = True
+            elif response and not hasattr(response, 'status_code') and not isinstance(response, dict):
+                is_success = True # Fallback for truthy objects without standard structure
+
+            if not is_success:
+                error_msg = getattr(response, 'text', str(response)) if response else "Empty response"
+                logging.error(f"Erro na API ao cadastrar subatributo '{data['name']}': {error_msg}")
+                subattribute['status'] = 'failed'
+                status['failed'] += 1
+            else:
+                subattribute['status'] = 'enrolled'
+                status['enrolled'] += 1
+        except Exception as e:
+            logging.error(f"Exceção ao cadastrar subatributo '{data['name']}': {e}")
             subattribute['status'] = 'failed'
             status['failed'] += 1
-        else:
-            subattribute['status'] = 'enrolled'
-            status['enrolled'] += 1
+            
         subattributes_status[f"{subattribute['parent_name']} | {subattribute['name']}"] = subattribute
     logging.info(
         f"Template {template_name} subattributes: {status['enrolled']} cadastrados, {status['skipped']} pulados, {status['failed']} falharam, {status['parent_not_found']} órfãos")
