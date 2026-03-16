@@ -12,6 +12,7 @@ from utils import traverse_attributes
 from datetime import datetime
 from templates import fix_unit_of_measurement 
 from dictionaries import DICTIONARIES
+from data_processor import get_item_enrollment_data
 
 if len(sys.argv) < 1:
     print("Uso: python -m enroll_templates.templates <CLIENT_NAME> [ENVIRONMENT]")
@@ -125,75 +126,12 @@ def create_update_report(tracking_data: list, output_filename: str = None) -> No
     print(f"      Failed: {failed_updates} ({failed_updates/total_items*100:.1f}%)")
 
 def main():
-
-    # Abre a planilha para coletar items e atributos
-    for source_name, entries in DICTIONARIES.items():
-        for entry in entries:
-            spreadsheet = entry.get("spreadsheet")
-            tabs = entry.get("tabs", [])
-
-            sheet_dfs = []
-            for sheet_n in tabs:
-                print()
-                print(f"Processing source={source_name} spreadsheet={spreadsheet} sheet={sheet_n}")
-                sheet_df = pd.read_excel(spreadsheet, sheet_name=sheet_n, engine="openpyxl")
-                sheet_dfs.append(sheet_df)
-
-            if not sheet_dfs:
-                continue
-
-            excel_templates = pd.concat(sheet_dfs, ignore_index=True)
-
-        # Drop rows only when template or equipment is missing.
-        # Value can be empty and still needs to be enrolled/updated.
-        excel_templates = excel_templates.dropna(subset=['Template', 'Equipamento'])
-        
-        # Replace any occurrence of '–' (en dash) with '-' (hyphen) in the entire dataframe to avoid issues with matching
-        excel_templates = excel_templates.replace('–', '-', regex=True)
-
-        # trim every cell in the dataframe
-        excel_templates = excel_templates.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-
-        # if attribute_name has "|", then type is subattribute, else attribute
-        excel_templates['type'] = excel_templates['attribute_name'].apply(
-            lambda x: 'subattribute' if isinstance(x, str) and '|' in x else 'attribute'
-        )
-        excel_templates['unit_of_measurement'] = excel_templates['unit_of_measurement'].fillna('')
-        excel_templates['decimal_places'] = excel_templates['decimal_places'].fillna('2')
-        excel_templates = excel_templates.replace({np.nan: None})
-        # excel_templates = excel_templates[excel_templates['type'] == "attribute"]
-        excel_templates['subattribute_name'] = excel_templates['attribute_name'].apply(
-            lambda x: x.split('|')[1].strip() if '|' in str(x) else ''
-        )
-        
-        excel_templates['attribute_name'] = excel_templates['attribute_name'].apply(
-            lambda x: x.split('|')[0].strip() if '|' in str(x) else str(x).strip()
-        )
-
-        # TODO Corrigir quando a aplicação permitir multiplas tags de Oil Analysis separadas por virgula em um mesmo atributo
-        def normalize_value(x):
-            if x is None or pd.isna(x):
-                return None
-
-            if isinstance(x, str):
-                cleaned = x.split(',')[0].strip() if ',' in x else x.strip()
-                return cleaned if cleaned != '' else None
-
-            return x
-
-        excel_templates['Value'] = excel_templates['Value'].apply(normalize_value)
-        
-
-        
-
-        excel_templates = excel_templates[['Template', 'Equipamento','attribute_name', 'subattribute_name', 'Value', 'unit_of_measurement', 'decimal_places']]
-
-        attributes = excel_templates[excel_templates['subattribute_name'] == '']
-        subattributes = excel_templates[excel_templates['subattribute_name'] != '']
-
-        # change type of subattributes value columns to number, removing everything that is not a number
-        # Converte para número, mantendo valores vazios como string vazia
-        subattributes['Value'] = pd.to_numeric(subattributes['Value'], errors='coerce').apply(lambda x: None if pd.isna(x) else x)
+    print(f"Buscando e processando dados para o cliente: {CLIENT_NAME}...")
+    try:
+        excel_templates, attributes, subattributes = get_item_enrollment_data(CLIENT_NAME)
+    except ValueError as e:
+        print(e)
+        return
 
 
 

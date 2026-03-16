@@ -7,10 +7,10 @@ from lighthouse import Lighthouse, clients
 import json
 import tqdm
 import numpy as np
-import pandas as pd
 from datetime import datetime
 import sys 
 from dictionaries import DICTIONARIES
+from data_processor import get_template_enrollment_data
 
 if len(sys.argv) < 1:
     print("Uso: python -m enroll_templates.templates <CLIENT_NAME> [ENVIRONMENT]")
@@ -225,19 +225,6 @@ def is_number(val):
     except (ValueError, TypeError):
         return False
 
-def normalize_attribute_key(attribute_name):
-    if not isinstance(attribute_name, str):
-        return attribute_name
-
-    attribute_name = " ".join(attribute_name.strip().split())
-    if '|' in attribute_name:
-        parent_name, subattribute_name = attribute_name.split('|', 1)
-        parent_name = " ".join(parent_name.strip().split())
-        subattribute_name = " ".join(subattribute_name.strip().split())
-        return f"{parent_name} | {subattribute_name}".lower()
-
-    return attribute_name.lower()
-
 def enroll_default_attributes(ws, template_id, categories, template_name):
     template_attributes = ws.get_template_attributes(template_id)['attributes']
     default_attributes, _ = get_default_attributes_and_subattributes()
@@ -439,48 +426,12 @@ def pipeline():
                     workspace_id=clients[ENVIRONMENT][CLIENT_NAME]["workspace_id"],
                     url=clients[ENVIRONMENT][CLIENT_NAME]["url"])
 
-    # 1. Carregar todos os dados de todas as planilhas/abas em um único DataFrame
-    all_dfs = []
-    for source_name, entries in DICTIONARIES.items():
-        for entry in entries:
-            spreadsheet = entry.get("spreadsheet")
-            tabs = entry.get("tabs", [])
-            for sheet_name in tabs:
-                print(f"Lendo: source={source_name} spreadsheet={spreadsheet} sheet={sheet_name}")
-                df = pd.read_excel(spreadsheet, sheet_name=sheet_name, engine="openpyxl")
-                df['__source_spreadsheet'] = spreadsheet
-                df['__source_sheet'] = sheet_name
-                all_dfs.append(df)
-
-    if not all_dfs:
-        print("Nenhuma planilha encontrada para processar.")
+    print(f"Buscando e processando dados para o cliente: {CLIENT_NAME}...")
+    try:
+        excel_templates = get_template_enrollment_data(CLIENT_NAME)
+    except ValueError as e:
+        print(e)
         return
-
-    excel_templates = pd.concat(all_dfs, ignore_index=True)
-
-    # 2. Pré-processamento único
-    excel_templates['type'] = excel_templates['attribute_name'].apply(
-        lambda x: 'subattribute' if isinstance(x, str) and '|' in x else 'attribute'
-    )
-    excel_templates['unit_of_measurement'] = excel_templates['unit_of_measurement'].fillna('')
-    excel_templates['decimal_places'] = excel_templates['decimal_places'].fillna(2)
-    excel_templates = excel_templates.replace({np.nan: None})
-    excel_templates = excel_templates[excel_templates['Template'].notnull()]  # Drop lines where Template is not filled
-    
-    # Remove duplicados lógicos dentro do mesmo template antes dos cadastros
-    excel_templates['Template_norm'] = excel_templates['Template'].apply(
-        lambda x: " ".join(x.strip().split()).lower() if isinstance(x, str) else x
-    )
-    excel_templates['attribute_name_norm'] = excel_templates['attribute_name'].apply(normalize_attribute_key)
-    before_dedup = len(excel_templates)
-    excel_templates = excel_templates.drop_duplicates(subset=['Template_norm', 'type', 'attribute_name_norm'])
-    removed_duplicates = before_dedup - len(excel_templates)
-    if removed_duplicates > 0:
-        print(f"Removidas {removed_duplicates} linhas duplicadas (Template + type + attribute_name)")
-    excel_templates = excel_templates.drop(columns=['Template_norm', 'attribute_name_norm'])
-    
-    # troca todos os "–" por "-" em todas as colunas para evitar problemas de formatação
-    excel_templates = excel_templates.replace('–', '-', regex=True)
 
     unique_templates = excel_templates["Template"].unique()
 
