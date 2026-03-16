@@ -1,0 +1,239 @@
+[
+    {
+        "name": "Condition Deviation",
+        "description": "",
+        "categories": [],
+        "default_value": "ON",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Severity Low",
+        "description": "",
+        "categories": [],
+        "default_value": "1",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Condition Deviation"
+    },
+    {
+        "name": "Severity Medium",
+        "description": "",
+        "categories": [],
+        "default_value": "2",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Condition Deviation"
+    },
+    {
+        "name": "Severity High",
+        "description": "",
+        "categories": [],
+        "default_value": "3",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Condition Deviation"
+    },
+    {
+        "name": "Severity High High",
+        "description": "",
+        "categories": [],
+        "default_value": "5",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Condition Deviation"
+    },
+    {
+        "name": "Alarm",
+        "description": "",
+        "categories": ["Alarm"],
+        "default_value": "ON",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Severity Low",
+        "description": "",
+        "categories": [],
+        "default_value": "1",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Alarm"
+    },
+    {
+        "name": "Severity Medium",
+        "description": "",
+        "categories": [],
+        "default_value": "2",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Alarm"
+    },
+    {
+        "name": "Severity High",
+        "description": "",
+        "categories": [],
+        "default_value": "3",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Alarm"
+    },
+    {
+        "name": "Severity High High",
+        "description": "",
+        "categories": [],
+        "default_value": "5",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "",
+        "parent_id": "Alarm"
+    },
+    {
+        "name": "Health Score",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "100",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "%"
+    },
+    {
+        "name": "HealthScore Weight",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "1",
+        "type": "Manual Integer",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Auxiliary System Health Score",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "100",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "%",
+        "parent_id": "Health Score"
+    },
+    {
+        "name": "Dynamic Condition Health Score",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "100",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "%",
+        "parent_id": "Health Score"
+    },
+    {
+        "name": "Oil Analysis Health Score",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "100",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "%",
+        "parent_id": "Health Score"
+    },
+    {
+        "name": "Process Condition Health Score",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "100",
+        "type": "Manual Float",
+        "decimal_places": 1,
+        "unit_of_measurement": "%",
+        "parent_id": "Health Score"
+    },
+    {
+        "name": "Health Score Method",
+        "description": "",
+        "categories": ["Health Score"],
+        "default_value": "Complex Average",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Is Out of Service",
+        "description": "",
+        "categories": [],
+        "default_value": "False",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Status",
+        "description": "",
+        "categories": [],
+        "default_value": "",
+        "type": "Time Series Integer",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Status de Funcionamento",
+        "description": "",
+        "categories": ["Variaveis Calculadas"],
+        "default_value": "",
+        "type": "Time Series Integer",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Tag CMMS",
+        "description": "",
+        "categories": ["Integrations"],
+        "default_value": "",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Tag Oil Analysis",
+        "description": "",
+        "categories": ["Integrations"],
+        "default_value": "",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "P&ID",
+        "description": "",
+        "categories": ["Documentos"],
+        "default_value": "",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "PFD",
+        "description": "",
+        "categories": ["Documentos"],
+        "default_value": "",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    },
+    {
+        "name": "Datasheet",
+        "description": "",
+        "categories": ["Documentos"],
+        "default_value": "",
+        "type": "Manual Text",
+        "decimal_places": 1,
+        "unit_of_measurement": ""
+    }
+]
