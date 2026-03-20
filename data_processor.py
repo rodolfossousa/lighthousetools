@@ -60,6 +60,8 @@ def get_template_enrollment_data(client_name=None):
     # Replace all en dashes with hyphens
     df = df.replace('–', '-', regex=True)
 
+    df = df.applymap(lambda x: " ".join(str(x).strip().split()) if isinstance(x, str) else x)
+
     # Fill NaNs where necessary before drop
     df['unit_of_measurement'] = df['unit_of_measurement'].fillna('')
     df['decimal_places'] = df['decimal_places'].fillna(2)
@@ -105,6 +107,7 @@ def get_item_enrollment_data(client_name=None):
     # Replace en dashes with hyphens and trim strings
     df = df.replace('–', '-', regex=True)
     df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.applymap(lambda x: " ".join(str(x).strip().split()) if isinstance(x, str) else x)
 
     # Drop rows missing critical linkage
     df = df.dropna(subset=['Template', 'Equipamento'])
