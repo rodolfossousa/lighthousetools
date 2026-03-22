@@ -2,7 +2,7 @@
 
 Este repositório contém utilitários em Python para automatizar o processo de cadastro (enrollment) de templates, atributos e atualização de itens no ecossistema da Lighthouse API.
 
-O objetivo principal é sincronizar dados provenientes de "Dicionários de Dados" (arquivos Excel) com workspaces específicos do Lighthouse de forma massiva e segura.
+O objetivo principal é sincronizar dados provenientes de "Dicionários de Dados" (arquivos Excel) com workspaces específicos do Lighthouse de forma massiva, segura e padronizada.
 
 ## Começando
 
@@ -22,89 +22,69 @@ pip install pandas openpyxl tqdm xlsxwriter numpy
 - `items.py`: Script para atualizar os valores dos atributos nos Itens (equipamentos) já existentes.
 - `config.py`: Centraliza a configuração do cliente API e o sistema de logs.
 - `dictionaries.py`: Arquivo de configuração que mapeia onde estão os arquivos Excel de cada cliente.
-- `data_processor.py`: Módulo que lê e limpa os dados das planilhas.
+- `data_processor.py`: Motor de ingestão que detecta a versão da planilha e normaliza os dados para um schema único.
+- `utils.py`: Funções auxiliares para normalização de nomes, unidades e travessia de atributos.
 - `logs/`: Diretório gerado automaticamente para armazenar os logs de execução e relatórios.
 
 ---
 
 ## Configuração de Novos Clientes
 
-Para adicionar um novo cliente ao utilitário, você precisa seguir dois passos:
-
 ### 1. Configurar as credenciais no `lighthouse` library
-O script utiliza a função `get_lighthouse_client` que busca as credenciais (API Key, Workspace ID, URL) na biblioteca `lighthouse`. Certifique-se de que o cliente está cadastrado no dicionário `clients` da biblioteca para os ambientes `dev` e/ou `prod`.
+Certifique-se de que o cliente está cadastrado no dicionário `clients` da biblioteca interna para os ambientes `dev` e/ou `prod`.
 
 ### 2. Mapear as planilhas em `dictionaries.py`
-Neste arquivo, você define o caminho absoluto das planilhas e quais abas (sheets) devem ser lidas.
-
-```python
-# Exemplo no dictionaries.py
-DICTIONARIES = {
-    "nome_do_cliente": [
-        {
-            "spreadsheet": r"C:\Caminho\Para\O\Dicionario_V1.xlsx",
-            "tabs": ["Nome_da_Aba1", "Nome_da_Aba2"],
-        },
-    ],
-}
-```
+Defina o caminho absoluto e as abas (sheets) que devem ser processadas. O script detectará automaticamente se a planilha segue o padrão V1 ou V2.
 
 ---
 
 ## Como Usar
 
-Os scripts são executados via linha de comando e aceitam dois argumentos: `cliente` (obrigatório) e `ambiente` (opcional, padrão é `dev`).
+Os scripts aceitam dois argumentos: `cliente` (obrigatório) e `ambiente` (opcional, padrão é `dev`).
 
 ### 1. Cadastrar Templates e Atributos
-Este script lê o dicionário, verifica se o template existe (senão, cria), cadastra as categorias necessárias e cadastra todos os atributos e subatributos definidos.
+Lê o dicionário, cria templates/categorias ausentes e cadastra atributos/subatributos.
 
 ```bash
-python templates.py <cliente> [ambiente]
-# Exemplo:
-python templates.py petroreconcavo prod
+python shape_workspace_wrapper/templates.py <cliente> [ambiente]
 ```
-
-**O que ele faz:**
-- Cria Categorias ausentes.
-- Cria Templates ausentes.
-- Adiciona Atributos padrão (definidos em `default_attributes.json`).
-- Adiciona Atributos específicos da planilha.
-- Configura Subatributos (aninhamento).
 
 ### 2. Atualizar Valores dos Itens
-Após os templates estarem configurados, use este script para enviar os valores reais dos equipamentos.
+Envia os valores reais (tags ou constantes) para os equipamentos existentes.
 
 ```bash
-python items.py <cliente> [ambiente]
-# Exemplo:
-python items.py petroreconcavo prod
+python shape_workspace_wrapper/items.py <cliente> [ambiente]
 ```
 
-**O que ele faz:**
-- Busca os itens no workspace pelo nome (coluna `Equipamento`).
-- Identifica os IDs dos atributos e subatributos.
-- Realiza atualizações em lote (batch update) para performance.
-- Gera um relatório detalhado em Excel na pasta `logs/`.
+---
+
+## Padrão das Planilhas (Ingestão Automática)
+
+O sistema de ingestão (`ingest_pipeline`) é capaz de identificar e processar dois formatos de planilha:
+
+### Dicionário V1 (Legado)
+Utiliza cabeçalhos em português e separa subatributos usando o caractere `|`.
+- **Colunas Obrigatórias**: `Template`, `Equipamento`, `attribute_name` (formato `Pai | Filho`), `Value`, `unit_of_measurement`, `decimal_places`, `Categories`.
+
+### Dicionário V2 (Novo Padrão)
+Utiliza cabeçalhos em inglês e colunas separadas para referências e valores.
+- **Colunas Obrigatórias**: `template`, `asset_name`, `attribute_name`, `subattribute_name`, `reference` (tag), `value` (valor fixo), `type`, `categories`.
+- **Tipos Suportados (`type`)**: `Time Series Float`, `Manual Text`, `Manual Float`, `Manual Integer`, `Time Series Integer`.
 
 ---
 
-## Logs e Relatórios
+## Funcionalidades Avançadas
 
-Cada execução gera dois tipos de rastro:
+### Múltiplas Categorias
+O campo de categorias (`Categories` ou `categories`) agora aceita múltiplas entradas separadas por vírgula.
+- **Exemplo**: `Sensores, Termodinâmica, Critical`
+- O script garantirá que cada categoria seja criada no workspace e vinculada ao atributo.
 
-1.  **Arquivo de Log (.log):** Localizado em `logs/items_TIMESTAMP.log` ou `logs/templates_TIMESTAMP.log`. Contém o histórico detalhado de cada chamada à API, erros e avisos.
-2.  **Relatório de Execução (.xlsx):** Para o script de itens, um relatório detalhado é gerado mostrando exatamente o que foi atualizado, o que não foi encontrado e quais erros ocorreram por item/atributo.
+### Normalização de Unidades
+Unidades de medida são automaticamente corrigidas para o padrão SI/Lighthouse (ex: `kpa` -> `kPa`, `°c` -> `°C`).
 
----
-
-## Padrão das Planilhas (Excel)
-
-Para que o `data_processor.py` funcione corretamente, as planilhas devem conter as seguintes colunas (mínimo):
-
-- **Template**: Nome do template do Lighthouse.
-- **Equipamento**: Nome do item/equipamento no workspace.
-- **attribute_name**: Nome do atributo. Use o formato `Pai | Filho` para subatributos.
-- **Value**: Valor atual do atributo (para `items.py`).
-- **unit_of_measurement**: Unidade (ex: ºC, bar, kPa).
-- **decimal_places**: Quantidade de casas decimais (padrão 2).
-- **Categories**: Categorias do template (separadas por vírgula).
+### Relatórios de Execução
+Ao final de cada rodada, um relatório `.xlsx` é gerado em `logs/` contendo:
+- **Summary**: Estatísticas globais de sucesso/falha.
+- **Detailed_Report**: Status linha a linha da planilha original.
+- **Not_Found_in_WS**: Itens que não foram localizados no workspace para atualização.

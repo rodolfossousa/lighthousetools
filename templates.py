@@ -5,12 +5,11 @@ Código para fazer cadastro de templates em um workspace específico
 import pandas as pd
 import json
 import tqdm
-import numpy as np
 import logging
 from datetime import datetime
-from dictionaries import DICTIONARIES
 from data_processor import get_template_enrollment_data
 from config import parse_args, get_lighthouse_client, setup_logging
+from utils import fix_unit_of_measurement
 
 
 def find_template_id_by_name(enrolled_templates, template_name):
@@ -69,7 +68,7 @@ def check_default_attributes(template_attributes, default_attributes):
     not_found = []
 
     for searched_attribute in default_attributes:
-        if not searched_attribute["name"] in current_attributes:
+        if searched_attribute["name"] not in current_attributes:
             not_found.append(searched_attribute)
 
     return not_found
@@ -94,7 +93,7 @@ def check_default_subattributes_for_template(ws, template_attributes, default_su
         parent_attribute_name = template_attribute['name']
 
         # pula caso não seja um dos atributos padrão
-        if not parent_attribute_name in needed_subattributes:
+        if parent_attribute_name not in needed_subattributes:
             continue
 
         # caso seja um atributo necessário, verificar se possui todos os subatributos
@@ -139,61 +138,6 @@ def fix_categories_uuid(attribute, categories, ws = None):
     attribute['categories'] = categories_id_list
     return attribute
 
-def fix_unit_of_measurement(unit_of_measurement:str):
-    """
-    Normaliza a unidade de medida para o formato correto.
-    Exemplo:
-        kpa, kPa, KPa -> kPa
-        KPag, kPag -> kPag
-        °C, ºC -> °C
-        Pa, pa -> Pa
-        °F, DEG F -> °F
-        G, g -> g
-        rpm, Rpm -> rpm
-    """
-    if not isinstance(unit_of_measurement, str):
-        return unit_of_measurement
-
-    if unit_of_measurement.strip() == '':
-        return ''
-
-    unit = unit_of_measurement.strip().lower()
-
-    # normalize whitespace and lowercase (unit already lowercased above)
-    unit_norm = " ".join(unit.split())
-
-    # flattened, case-insensitive mapping (all keys stored in lowercase)
-    mapping = {
-        'pa': 'Pa',
-        'kpa': 'kPa',
-        'kpag': 'kPag',
-
-        '°c': '°C',
-        'ºc': '°C',
-        'oc': '°C',
-        'deg c': '°C',
-        'degc': '°C',
-
-        '°f': '°F',
-        'ºf': '°F',
-        'of': '°F',
-
-        'deg f': '°F',
-        'degf': '°F',
-
-        'g': 'g',
-
-        'rpm': 'rpm',
-
-        "psig": "psig",
-        "psid": "psid",
-
-        "ips": "IPS",
-    }
-
-    # return the canonical unit if found (case-insensitive), else original trimmed string
-    return mapping.get(unit_norm, unit_of_measurement.strip())
-
 
 def find_attributes_group_id(ws) -> str:
     groups = ws.get_groups()
@@ -228,7 +172,7 @@ def enroll_default_attributes(ws, template_id, categories, template_name):
             # attribute_not_found['name'] = attribute_not_found['name'].title()
             logging.info(f"\tCadastrando atributo {attribute_not_found['name']}")
             attribute_not_found = fix_categories_uuid(attribute_not_found, categories, ws)
-            response = ws.post_template_attribute(template_id, attribute_not_found)
+            ws.post_template_attribute(template_id, attribute_not_found)
 
 def enroll_default_subattributes(ws, template_id, categories, template_name):
     template_attributes = ws.get_template_attributes(template_id)['attributes']
@@ -249,17 +193,18 @@ def enroll_default_subattributes(ws, template_id, categories, template_name):
             ws.post_template_attribute(template_id, subattribute)
 
 def enroll_attributes(ws, template_id, categories, excel_templates, template_name):
-    attributes_to_enroll = excel_templates[excel_templates['type'] == 'attribute']
+    attributes_to_enroll = excel_templates[excel_templates['attribute_level'] == 'attribute']
     attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['attribute_name'].notnull()]  # Drop lines where attribute_name is NaN
-    attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['Template'] == template_name]
-    attributes_to_enroll = attributes_to_enroll[[ 'Template', 'attribute_name', 'Categories', 'decimal_places', 'unit_of_measurement']]
+    attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['template_name'] == template_name]
+    attributes_to_enroll = attributes_to_enroll[['template_name', 'attribute_name', 'categories', 'decimal_places', 'unit_of_measurement', 'data_type']]
     attributes_to_enroll['attribute_name'] = attributes_to_enroll['attribute_name'].apply(lambda x: x.strip())
     attributes_to_enroll = attributes_to_enroll.rename(columns={
         'attribute_name': 'name',
-        'Categories': 'categories',
+        'categories': 'categories',
         'decimal_places': 'decimal_places',
         'unit_of_measurement': 'unit_of_measurement',
-        'Template': 'template'
+        'template_name': 'template',
+        'data_type': 'data_type'
     })
     attributes_to_enroll = attributes_to_enroll.drop_duplicates()
     template_attributes = ws.get_template_attributes(template_id)['attributes']
@@ -273,11 +218,16 @@ def enroll_attributes(ws, template_id, categories, excel_templates, template_nam
             attributes_status[attribute['name']] = attribute
             status['skipped'] += 1
             continue
+        # Parse multiple categories
+        cat_str = attribute['categories']
+        parsed_categories = [c.strip() for c in str(cat_str).split(',')] if pd.notna(cat_str) and cat_str else []
+        parsed_categories = [c for c in parsed_categories if c] # Remove empty strings
+
         data = {
             'name': attribute['name'].strip(),
             'description': '',
-            'categories': [attribute['categories']],
-            'type': 'Time Series Float',
+            'categories': parsed_categories,
+            'type': attribute.get('data_type', 'Time Series Float'),
             'decimal_places': str(int(attribute['decimal_places'])),
             'unit_of_measurement': fix_unit_of_measurement(attribute['unit_of_measurement'])
         }
@@ -304,23 +254,27 @@ def enroll_attributes(ws, template_id, categories, excel_templates, template_nam
 
 def enroll_subattributes(ws, template_id, categories, excel_templates, template_name):
     template_attributes = ws.get_template_attributes(template_id)['attributes']
-    subattributes_to_enroll = excel_templates[excel_templates['type'] == 'subattribute']
+    subattributes_to_enroll = excel_templates[excel_templates['attribute_level'] == 'subattribute']
     # check if there is any subattribute to enroll for the template
-    if subattributes_to_enroll[subattributes_to_enroll['Template'] == template_name].shape[0] == 0:
+    if subattributes_to_enroll[subattributes_to_enroll['template_name'] == template_name].shape[0] == 0:
         logging.info(f"Nenhum subatributo para cadastrar no template {template_name}")
         return None
-    subattributes_to_enroll = subattributes_to_enroll[subattributes_to_enroll['Template'] == template_name]
-    subattributes_to_enroll = subattributes_to_enroll[['Template', 'attribute_name', 'Categories', 'decimal_places', 'unit_of_measurement', 'Value']]
+    subattributes_to_enroll = subattributes_to_enroll[subattributes_to_enroll['template_name'] == template_name]
+    
+    # We reconstruct the 'name' column as parent|child for legacy logic compatibility 
+    # since we separated them in data_processor
+    subattributes_to_enroll['full_name'] = subattributes_to_enroll['attribute_name'] + ' | ' + subattributes_to_enroll['subattribute_name']
+    
+    subattributes_to_enroll = subattributes_to_enroll[['template_name', 'full_name', 'categories', 'decimal_places', 'unit_of_measurement', 'value', 'data_type']]
     subattributes_to_enroll = subattributes_to_enroll.drop_duplicates()
     subattributes_to_enroll = subattributes_to_enroll.rename(columns={
-        'attribute_name': 'name',
-        'Categories': 'categories',
+        'full_name': 'name',
+        'categories': 'categories',
         'decimal_places': 'decimal_places',
         'unit_of_measurement': 'unit_of_measurement',
-        'Template': 'template',
-        'Value': 'value'
+        'template_name': 'template',
+        'value': 'value'
     })
-    subattributes_to_enroll['type'] = 'Manual Float'
     subattributes_to_enroll[['parent_name', 'name']] = subattributes_to_enroll['name'].str.split('|', n=1, expand=True)
     subattributes_to_enroll['parent_name'] = subattributes_to_enroll['parent_name'].str.strip()
     subattributes_to_enroll['name'] = subattributes_to_enroll['name'].str.strip()
@@ -348,15 +302,24 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
                 subattribute['status'] = 'skipped'
                 subattributes_status[subattribute['name']] = subattribute
                 continue
-        except:
+        except KeyError:
             status['parent_not_found'] += 1
             subattribute['status'] = 'parent_not_found'
             subattributes_status[subattribute['name']] = subattribute
             continue
+        # Parse multiple categories
+        cat_str = subattribute['categories']
+        parsed_categories = [c.strip() for c in str(cat_str).split(',')] if pd.notna(cat_str) and cat_str else []
+        parsed_categories = [c for c in parsed_categories if c]
+        
+        # Ensure 'Limits' is always present for subattributes
+        if 'Limits' not in parsed_categories:
+            parsed_categories.insert(0, 'Limits')
+
         data = {
             'name': subattribute['name'].strip(),
             'description': '',
-            'categories': ['Limits'], # Força categoria Limits em todos os subatributos
+            'categories': parsed_categories,
             'type': subattribute['type'],
             'decimal_places': subattribute['decimal_places'],
             'unit_of_measurement': fix_unit_of_measurement(subattribute['unit_of_measurement']),
@@ -445,14 +408,23 @@ def pipeline(client_name, environment):
         logging.error(e)
         return
 
-    unique_templates = excel_templates["Template"].unique()
+    unique_templates = excel_templates["template_name"].unique()
 
     # 3. Cadastrar todas as categorias que não existem
     categories = ws.get_categories()
-    all_categories = excel_templates['Categories'].dropna().unique()
+    
+    # Extract unique categories by splitting comma-separated strings
+    raw_categories = excel_templates['categories'].dropna()
+    all_categories = set()
+    for cat_str in raw_categories:
+        for cat in str(cat_str).split(','):
+            cleaned_cat = cat.replace(";", "").strip()
+            if cleaned_cat:
+                all_categories.add(cleaned_cat)
+    all_categories = list(all_categories)
+    
     attributes_goup_id = find_attributes_group_id(ws)
     for category in all_categories:
-        category = category.replace(";", "").strip()
         # get or create category
         category_id = find_category_id_by_name(categories, category)
         if not category_id:

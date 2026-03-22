@@ -3,14 +3,10 @@ Código para fazer cadastro de items em um workspace específico
 """
 
 import pandas as pd
-import json
 import tqdm
-import numpy as np
 import logging
-from utils import traverse_attributes
+from utils import traverse_attributes, fix_unit_of_measurement
 from datetime import datetime
-from templates import fix_unit_of_measurement 
-from dictionaries import DICTIONARIES
 from data_processor import get_item_enrollment_data
 from config import parse_args, get_lighthouse_client, setup_logging
 
@@ -46,12 +42,12 @@ def create_update_report(tracking_data: list, client_name, environment, output_f
     
     # Create summary statistics
     total_items = len(df)
-    total_attributes = len(df[df['is_subattribute'] == False])
-    total_subattributes = len(df[df['is_subattribute'] == True])
-    found_items = len(df[df['found_in_ws'] == True])
-    updated_items = len(df[df['was_updated'] == True])
-    skipped_empty_value = len(df[df['skipped_empty_value'] == True])
-    failed_updates = len(df[(df['found_in_ws'] == True) & (df['was_updated'] == False) & (df['skipped_empty_value'] == False)])
+    total_attributes = len(df[~df['is_subattribute']])
+    total_subattributes = len(df[df['is_subattribute']])
+    found_items = len(df[df['found_in_ws']])
+    updated_items = len(df[df['was_updated']])
+    skipped_empty_value = len(df[df['skipped_empty_value']])
+    failed_updates = len(df[df['found_in_ws'] & ~df['was_updated'] & ~df['skipped_empty_value']])
     
     # Create summary sheet data
     summary_data = {
@@ -82,19 +78,19 @@ def create_update_report(tracking_data: list, client_name, environment, output_f
         df.to_excel(writer, sheet_name='Detailed_Report', index=False)
         
         # Write filtered views
-        not_found_df = df[df['found_in_ws'] == False]
+        not_found_df = df[~df['found_in_ws']]
         not_found_df.to_excel(writer, sheet_name='Not_Found_in_WS', index=False)
         
-        found_not_updated_df = df[(df['found_in_ws'] == True) & (df['was_updated'] == False)]
+        found_not_updated_df = df[df['found_in_ws'] & ~df['was_updated']]
         found_not_updated_df.to_excel(writer, sheet_name='Found_Not_Updated', index=False)
         
-        skipped_empty_df = df[df['skipped_empty_value'] == True]
+        skipped_empty_df = df[df['skipped_empty_value']]
         skipped_empty_df.to_excel(writer, sheet_name='Skipped_Empty_Values', index=False)
         
-        failed_updates_df = df[(df['found_in_ws'] == True) & (df['was_updated'] == False) & (df['skipped_empty_value'] == False)]
+        failed_updates_df = df[df['found_in_ws'] & ~df['was_updated'] & ~df['skipped_empty_value']]
         failed_updates_df.to_excel(writer, sheet_name='Failed_Updates', index=False)
         
-        updated_df = df[df['was_updated'] == True]
+        updated_df = df[df['was_updated']]
         updated_df.to_excel(writer, sheet_name='Successfully_Updated', index=False)
     
     logging.info(f"Update report saved to: {output_filename}")
@@ -129,12 +125,12 @@ def main(client_name, environment):
     # Add all attributes to tracking
     for _, row in attributes.iterrows():
         tracking_data.append({
-            'equipment_name': row['Equipamento'],
-            'template_name': row['Template'],
+            'equipment_name': row['asset_name'],
+            'template_name': row['template_name'],
             'attribute_name': row['attribute_name'],
             'subattribute_name': None,
             'parent_attribute_name': None,
-            'value_in_excel': row['Value'],
+            'value_in_excel': row['value'],
             'is_subattribute': False,
             'found_in_ws': False,
             'was_updated': False,
@@ -148,12 +144,12 @@ def main(client_name, environment):
     # Add all subattributes to tracking
     for _, row in subattributes.iterrows():
         tracking_data.append({
-            'equipment_name': row['Equipamento'],
-            'template_name': row['Template'],
+            'equipment_name': row['asset_name'],
+            'template_name': row['template_name'],
             'attribute_name': row['attribute_name'],
             'subattribute_name': row['subattribute_name'],
             'parent_attribute_name': row['attribute_name'],
-            'value_in_excel': row['Value'],
+            'value_in_excel': row['value'],
             'is_subattribute': True,
             'found_in_ws': False,
             'was_updated': False,
@@ -171,7 +167,7 @@ def main(client_name, environment):
     enrolled_items = ws.get_items()
 
     # get unique equipment names in excel_templates
-    equipment_names = excel_templates['Equipamento'].unique()
+    equipment_names = excel_templates['asset_name'].unique()
     
     # remove from enrolled_items any item that is not in equipment_names
     enrolled_items = {item_id: item_name for item_id, item_name in enrolled_items.items() if item_name in equipment_names}
@@ -244,27 +240,27 @@ def main(client_name, environment):
                 # Se for subatributo, procura na tabela de subatributos
                 if is_subattribute:
                     row = subattributes[
-                        (subattributes['Equipamento'] == equipment_name) & 
+                        (subattributes['asset_name'] == equipment_name) & 
                         (subattributes['attribute_name'] == attribute_name) & 
                         (subattributes['subattribute_name'] == subattribute_name)
                     ]
                 # Se for atributo, procura na tabela de atributos
                 else:
                     row = attributes[
-                        (attributes['Equipamento'] == equipment_name) & 
+                        (attributes['asset_name'] == equipment_name) & 
                         (attributes['attribute_name'] == attribute_name)
                     ]
                 # Se não encontrar atributo ou subatributo na planilha, pular
                 if row.size == 0:
                     continue
                 
-                value = row.iloc[0]['Value']
+                # Fetch unit of measurement and decimal places
                 unit_of_measurement = fix_unit_of_measurement(row.iloc[0].get('unit_of_measurement', ''))
                 decimal_places = str(row.iloc[0].get('decimal_places', ''))
 
-
                 # If attribute is manual or subattribute, prepare for manual update
                 if is_subattribute or is_manual_attribute:
+                    value = row.iloc[0]['value']
                     manual_value = None if value is None or pd.isna(value) else str(value)
 
                     subattributes_to_update.append({
@@ -272,13 +268,14 @@ def main(client_name, environment):
                         'value': manual_value
                     })
 
-                # Se for atributo
+                # Se for atributo time series
                 elif not is_subattribute and not is_manual_attribute:
+                    reference = row.iloc[0]['reference']
                     attributes_to_update.append({
                         'id': attribute_id,
                         'unit_of_measurement': unit_of_measurement,
                         'engineering_unit': unit_of_measurement,
-                        'reference': value,
+                        'reference': reference,
                         'decimal_places': decimal_places
                     })
                 

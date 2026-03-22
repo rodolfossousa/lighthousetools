@@ -1,5 +1,61 @@
 import numpy as np
 
+def fix_unit_of_measurement(unit_of_measurement:str):
+    """
+    Normaliza a unidade de medida para o formato correto.
+    Exemplo:
+        kpa, kPa, KPa -> kPa
+        KPag, kPag -> kPag
+        °C, ºC -> °C
+        Pa, pa -> Pa
+        °F, DEG F -> °F
+        G, g -> g
+        rpm, Rpm -> rpm
+    """
+    if not isinstance(unit_of_measurement, str):
+        return unit_of_measurement
+
+    if unit_of_measurement.strip() == '':
+        return ''
+
+    unit = unit_of_measurement.strip().lower()
+
+    # normalize whitespace and lowercase (unit already lowercased above)
+    unit_norm = " ".join(unit.split())
+
+    # flattened, case-insensitive mapping (all keys stored in lowercase)
+    mapping = {
+        'pa': 'Pa',
+        'kpa': 'kPa',
+        'kpag': 'kPag',
+
+        '°c': '°C',
+        'ºc': '°C',
+        'oc': '°C',
+        'deg c': '°C',
+        'degc': '°C',
+
+        '°f': '°F',
+        'ºf': '°F',
+        'of': '°F',
+
+        'deg f': '°F',
+        'degf': '°F',
+
+        'g': 'g',
+
+        'rpm': 'rpm',
+
+        "psig": "psig",
+        "psid": "psid",
+
+        "ips": "IPS",
+    }
+
+    # return the canonical unit if found (case-insensitive), else original trimmed string
+    return mapping.get(unit_norm, unit_of_measurement.strip())
+
+
 def traverse_attributes(attribute, parent_attribute_id=None, parent_attribute_name=None):
     """
     Traverse the attribute tree recursively and return a list of all attributes and sub-attributes
