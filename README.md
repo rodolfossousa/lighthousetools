@@ -33,8 +33,23 @@ pip install pandas openpyxl tqdm xlsxwriter numpy
 ### 1. Configurar as credenciais no `lighthouse` library
 Certifique-se de que o cliente está cadastrado no dicionário `clients` da biblioteca interna para os ambientes `dev` e/ou `prod`.
 
-### 2. Mapear as planilhas em `dictionaries.py`
-Defina o caminho absoluto e as abas (sheets) que devem ser processadas. O script detectará automaticamente se a planilha segue o padrão V1 ou V2.
+### 2. Configurar o caminho base das planilhas
+
+Copie o arquivo `.env.example` para `.env` e preencha com o caminho da pasta de implementação sincronizada localmente no seu computador:
+
+```bash
+cp .env.example .env
+```
+
+Edite o `.env`:
+```
+SHAPE_DOCS_PATH=C:\Users\SeuNome\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation
+```
+
+> **Nota:** O arquivo `.env` é ignorado pelo git
+
+### 3. Mapear as planilhas em `dictionaries.py`
+Defina as abas que devem ser processadas. Os caminhos das planilhas são construídos automaticamente a partir do `SHAPE_DOCS_PATH`. O script detectará automaticamente se a planilha segue o padrão V1 ou V2.
 
 ---
 

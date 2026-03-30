@@ -1,60 +1,85 @@
+import os
+
+def _load_env_file():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, _, value = line.partition('=')
+                    os.environ.setdefault(key.strip(), value.strip())
+
+_load_env_file()
+
+_base = os.environ.get('SHAPE_DOCS_PATH')
+if not _base:
+    raise EnvironmentError(
+        "Variável de ambiente 'SHAPE_DOCS_PATH' não definida. "
+        "Copie o arquivo .env.example para .env e preencha o caminho base."
+    )
+
+def _p(*parts):
+    return os.path.join(_base, *parts)
+
+
 DICTIONARIES = {
     "prio": [
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion V3 - GTG.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion V3 - GTG.xlsx"),
         #     "tabs": [
         #         "Attributos Items (Dicionario)",
         #     ],
         # },
         {
-            "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Health Score.xlsx",
+            "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Health Score.xlsx"),
             "tabs": [
                 "Health Score",
             ],
         },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion Compressors v0.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion Compressors v0.xlsx"),
         #     "tabs": [
         #          "FRADE Dicionário LP_IP_HP Comp",
-                #  "FRADE Dicio Flash Gas Compres",
-                #  "FORTE Dicio Gas Booster Compres",
-                #  "BRAVO Dicionário Ariel Compress",
-                #  "FORTE Dicionário Main",
-                #  "FORTE - Dicionário DGS N2",
+        #          "FRADE Dicio Flash Gas Compres",
+        #          "FORTE Dicio Gas Booster Compres",
+        #          "BRAVO Dicionário Ariel Compress",
+        #          "FORTE Dicionário Main",
+        #          "FORTE - Dicionário DGS N2",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Bombas.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Bombas.xlsx"),
         #     "tabs": [
         #         "Dicionario Bombas",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trafos.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trafos.xlsx"),
         #     "tabs": [
         #         "Dicionario_FORTE_Trafo_Def A",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion CompressorAr.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion CompressorAr.xlsx"),
         #     "tabs": [
         #         "Dicionário_CompressorAr",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Tags CMMS.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Tags CMMS.xlsx"),
         #     "tabs": [
         #         "Tag SAP",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Sotreq.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Sotreq.xlsx"),
         #     "tabs": [
         #         "Dicionario Sotreq",
         #     ],
         # },
         # {
-        #     "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trocadores de Calor V1.xlsx",
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trocadores de Calor V1.xlsx"),
         #     "tabs": [
         #         "Bravo Trocadores de Calor",
         #         "Forte Trocadores de Calor",
@@ -64,7 +89,7 @@ DICTIONARIES = {
     ],
     "jirau": [
         {
-            "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\04. Jirau\Dicionário de Dados\Dicionario de Dados SMARTUG.xlsx",
+            "spreadsheet": _p(r"04. Jirau\Dicionário de Dados\Dicionario de Dados SMARTUG.xlsx"),
             "tabs": [
                 # "Motoventiladores",
                 # "Sensores IFM",
@@ -77,7 +102,7 @@ DICTIONARIES = {
     ],
     "petroreconcavo": [
         {
-            "spreadsheet": r"C:\Users\BrenoRobazza\Shape Digital\Implementation & Diagnostics - Documentos\General\2. Implementation\13. Petroreconcavo\3. Parametrização e Cadastros\Dicionario_Find_Final_PetroReconcavo.xlsx",
+            "spreadsheet": _p(r"13. Petroreconcavo\3. Parametrização e Cadastros\Dicionario_Find_Final_PetroReconcavo.xlsx"),
             "tabs": [
                 # "Consolidado",
                 "harmonizado_orig_Limp"
