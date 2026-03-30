@@ -261,7 +261,14 @@ def main(client_name, environment):
                 # If attribute is manual or subattribute, prepare for manual update
                 if is_subattribute or is_manual_attribute:
                     value = row.iloc[0]['value']
+                    # V1 format stores all top-level attribute content in 'reference';
+                    # fall back to it when value is empty and this is a manual (non-subattribute) attribute
+                    if not is_subattribute and (value is None or pd.isna(value)):
+                        value = row.iloc[0].get('reference')
                     manual_value = None if value is None or pd.isna(value) else str(value)
+
+                    if manual_value is None and tracking_record:
+                        tracking_record['skipped_empty_value'] = True
 
                     subattributes_to_update.append({
                         'id': subattribute_id if is_subattribute else attribute_id,
