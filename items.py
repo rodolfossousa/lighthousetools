@@ -18,26 +18,48 @@ def find_attribute_reference(attribute_name: str, attribute_dict: dict) -> str:
     else:
         return ''
 
-def create_update_report(tracking_data: list, client_name, environment, output_filename: str = None) -> None:
+def create_update_report(tracking_data: list, client_name, environment, ws_equipment_names: set = None, output_filename: str = None) -> None:
     """
     Create a comprehensive Excel report showing all attributes/subattributes
     with their update status and parent relationships.
-    
+
     Args:
         tracking_data: List of dictionaries containing tracking information
         client_name: Name of the client
         environment: Environment name
+        ws_equipment_names: Set of equipment names present in the workspace
         output_filename: Name of the output Excel file
     """
     if not output_filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"logs/update_report_{client_name}_{environment}_{timestamp}.xlsx"
-    
+
     # Convert tracking data to DataFrame
     df = pd.DataFrame(tracking_data)
-    
+
+    # Add not_found_reason column for records not found in workspace
+    if ws_equipment_names is not None:
+        found_attributes = {
+            (rec['equipment_name'], rec['attribute_name'])
+            for rec in tracking_data
+            if not rec['is_subattribute'] and rec['found_in_ws']
+        }
+
+        def get_not_found_reason(row):
+            if row['found_in_ws']:
+                return ''
+            if row['equipment_name'] not in ws_equipment_names:
+                return '[a] Equipamento ausente no workspace'
+            if not row['is_subattribute']:
+                return '[b] Atributo não encontrado no workspace'
+            if (row['equipment_name'], row['attribute_name']) in found_attributes:
+                return '[c] Subatributo não encontrado (atributo pai OK)'
+            return '[d] Subatributo não encontrado (atributo pai também ausente)'
+
+        df['not_found_reason'] = df.apply(get_not_found_reason, axis=1)
+
     # Sort by equipment, then by attributes, then by subattributes
-    df = df.sort_values(['equipment_name', 'attribute_name', 'is_subattribute', 'subattribute_name'], 
+    df = df.sort_values(['equipment_name', 'attribute_name', 'is_subattribute', 'subattribute_name'],
                        na_position='first')
     
     # Create summary statistics
@@ -172,6 +194,12 @@ def main(client_name, environment):
     # remove from enrolled_items any item that is not in equipment_names
     enrolled_items = {item_id: item_name for item_id, item_name in enrolled_items.items() if item_name in equipment_names}
 
+    equipment_names_not_in_ws = set(equipment_names) - set(enrolled_items.values())
+    if equipment_names_not_in_ws:
+        logging.warning(f">>>>> {len(equipment_names_not_in_ws)} equipamento(s) da planilha não encontrados no workspace:")
+        for name in sorted(equipment_names_not_in_ws):
+            logging.warning(f"  Equipamento ausente no workspace: {name}")
+
     attributes_to_update = []
     subattributes_to_update = []
     total_updated_attributes = 0
@@ -184,7 +212,11 @@ def main(client_name, environment):
         item_attributes = item_attributes.get('attributes', [])
 
         if not item_attributes:
-            logging.warning(f">>>>> Nenhum atributo encontrado para o item {item_name} (ID: {item_id})")
+            expected_count = sum(1 for r in tracking_data if r['equipment_name'] == item_name)
+            logging.warning(
+                f">>>>> {item_name}: encontrado no workspace mas sem atributos cadastrados "
+                f"({expected_count} atributo(s)/subatributo(s) da planilha não poderão ser atualizados)"
+            )
             continue
         
         for attribute in tqdm.tqdm(item_attributes, desc=f"Attributes ({item_name})"):
@@ -345,13 +377,44 @@ def main(client_name, environment):
     # Surface attributes/subattributes that never matched anything in the workspace
     not_found_records = [rec for rec in tracking_data if not rec['found_in_ws']]
     if not_found_records:
-        logging.warning(">>>>> Atributos/Subatributos não encontrados no workspace:")
-        for rec in not_found_records:
-            subattr_suffix = f" | Subatributo: {rec['subattribute_name']}" if rec['is_subattribute'] else ""
-            logging.warning(
-                f"  Equipamento: {rec['equipment_name']} | Template: {rec['template_name']} | "
-                f"Atributo: {rec['attribute_name']}{subattr_suffix}"
-            )
+        ws_equipment_names = set(enrolled_items.values())
+        found_attributes = {
+            (rec['equipment_name'], rec['attribute_name'])
+            for rec in tracking_data
+            if not rec['is_subattribute'] and rec['found_in_ws']
+        }
+
+        equip_not_in_ws = [r for r in not_found_records if r['equipment_name'] not in ws_equipment_names]
+        equip_in_ws = [r for r in not_found_records if r['equipment_name'] in ws_equipment_names]
+
+        attrs_not_found = [r for r in equip_in_ws if not r['is_subattribute']]
+
+        subattrs_not_found = [r for r in equip_in_ws if r['is_subattribute']]
+        subattrs_parent_found = [r for r in subattrs_not_found if (r['equipment_name'], r['attribute_name']) in found_attributes]
+        subattrs_parent_not_found = [r for r in subattrs_not_found if (r['equipment_name'], r['attribute_name']) not in found_attributes]
+
+        logging.warning(f">>>>> {len(not_found_records)} item(ns) não encontrado(s) no workspace:")
+
+        if equip_not_in_ws:
+            logging.warning(f"  [a] Equipamento ausente no workspace ({len(equip_not_in_ws)} registro(s)):")
+            for rec in equip_not_in_ws:
+                suffix = f" > Subatributo: {rec['subattribute_name']}" if rec['is_subattribute'] else ""
+                logging.warning(f"    {rec['equipment_name']} | Atributo: {rec['attribute_name']}{suffix}")
+
+        if attrs_not_found:
+            logging.warning(f"  [b] Atributo não encontrado no workspace ({len(attrs_not_found)} registro(s)):")
+            for rec in attrs_not_found:
+                logging.warning(f"    {rec['equipment_name']} | Atributo: {rec['attribute_name']}")
+
+        if subattrs_parent_found:
+            logging.warning(f"  [c] Subatributo não encontrado (atributo pai OK) ({len(subattrs_parent_found)} registro(s)):")
+            for rec in subattrs_parent_found:
+                logging.warning(f"    {rec['equipment_name']} | Atributo: {rec['attribute_name']} | Subatributo: {rec['subattribute_name']}")
+
+        if subattrs_parent_not_found:
+            logging.warning(f"  [d] Subatributo não encontrado (atributo pai também ausente) ({len(subattrs_parent_not_found)} registro(s)):")
+            for rec in subattrs_parent_not_found:
+                logging.warning(f"    {rec['equipment_name']} | Atributo: {rec['attribute_name']} | Subatributo: {rec['subattribute_name']}")
     else:
         logging.info("Todos os atributos e subatributos foram encontrados no workspace.")
 
@@ -359,7 +422,7 @@ def main(client_name, environment):
     logging.info(f"Total de subatributos atualizados: {total_updated_subattributes}")
     
     # Generate comprehensive update report
-    create_update_report(tracking_data, client_name, environment)
+    create_update_report(tracking_data, client_name, environment, ws_equipment_names=set(enrolled_items.values()))
 
 if __name__ == "__main__":
     args = parse_args()
