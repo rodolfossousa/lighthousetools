@@ -273,7 +273,8 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
         'decimal_places': 'decimal_places',
         'unit_of_measurement': 'unit_of_measurement',
         'template_name': 'template',
-        'value': 'value'
+        'value': 'value',
+        'data_type': 'type'
     })
     subattributes_to_enroll[['parent_name', 'name']] = subattributes_to_enroll['name'].str.split('|', n=1, expand=True)
     subattributes_to_enroll['parent_name'] = subattributes_to_enroll['parent_name'].str.strip()

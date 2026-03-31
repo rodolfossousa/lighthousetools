@@ -31,12 +31,12 @@ DICTIONARIES = {
         #         "Attributos Items (Dicionario)",
         #     ],
         # },
-        {
-            "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Health Score.xlsx"),
-            "tabs": [
-                "Health Score",
-            ],
-        },
+        # {
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Health Score.xlsx"),
+        #     "tabs": [
+        #         "Health Score",
+        #     ],
+        # },
         # {
         #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion Compressors v0.xlsx"),
         #     "tabs": [
@@ -86,6 +86,13 @@ DICTIONARIES = {
         #         "Frade Trocadores de Calor"
         #     ],
         # },
+        {"spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trocadores de Calor O2.xlsx"),
+        "tabs": [
+            "BRAVO Trocadores de Calor O2",
+            "Forte Trocadores de Calor O2",
+            "Frade Trocadores de Calor O2"
+        ],
+        }
     ],
     "jirau": [
         {
