@@ -25,10 +25,16 @@ def _p(*parts):
 
 DICTIONARIES = {
     "prio": [
+        {
+            "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion V3 - GTG.xlsx"),
+            "tabs": [
+                "Attributos Items (Dicionario)",
+            ],
+        },
         # {
-        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion V3 - GTG.xlsx"),
+        #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Variaveis Calculadas.xlsx"),
         #     "tabs": [
-        #         "Attributos Items (Dicionario)",
+        #         "Variaveis Calculadas 2",
         #     ],
         # },
         # {
@@ -41,11 +47,11 @@ DICTIONARIES = {
         #     "spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion Compressors v0.xlsx"),
         #     "tabs": [
         #          "FRADE Dicionário LP_IP_HP Comp",
-        #          "FRADE Dicio Flash Gas Compres",
-        #          "FORTE Dicio Gas Booster Compres",
-        #          "BRAVO Dicionário Ariel Compress",
-        #          "FORTE Dicionário Main",
-        #          "FORTE - Dicionário DGS N2",
+                #  "FRADE Dicio Flash Gas Compres",
+                #  "FORTE Dicio Gas Booster Compres",
+                #  "BRAVO Dicionário Ariel Compress",
+                #  "FORTE Dicionário Main",
+                #  "FORTE - Dicionário DGS N2",
         #     ],
         # },
         # {
@@ -86,13 +92,13 @@ DICTIONARIES = {
         #         "Frade Trocadores de Calor"
         #     ],
         # },
-        {"spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trocadores de Calor O2.xlsx"),
-        "tabs": [
-            "BRAVO Trocadores de Calor O2",
-            "Forte Trocadores de Calor O2",
-            "Frade Trocadores de Calor O2"
-        ],
-        }
+        # {"spreadsheet": _p(r"11. PRIO - Expansion\3. Parametrização e Cadastros\Dicionário de Dados - PRIO Expansion - Trocadores de Calor O2.xlsx"),
+        # "tabs": [
+        #     "BRAVO Trocadores de Calor O2",
+        #     "Forte Trocadores de Calor O2",
+        #     "Frade Trocadores de Calor O2"
+        # ],
+        # }
     ],
     "jirau": [
         {

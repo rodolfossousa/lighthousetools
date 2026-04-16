@@ -3,3 +3,5 @@ logs/
 !README.md
 *pycache*
 .env
+*.egg-info/
+*.csv

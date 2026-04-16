@@ -57,6 +57,7 @@ def fix_unit_of_measurement(unit_of_measurement:str):
 
 
 def traverse_attributes(attribute, parent_attribute_id=None, parent_attribute_name=None):
+
     """
     Traverse the attribute tree recursively and return a list of all attributes and sub-attributes
     
@@ -145,3 +146,4 @@ def traverse_attributes(attribute, parent_attribute_id=None, parent_attribute_na
             attributes_list.extend(traverse_attributes(sub_attribute, current_attribute_id, current_attribute_name))
     
     return attributes_list
+

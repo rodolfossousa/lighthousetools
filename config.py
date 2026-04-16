@@ -3,7 +3,7 @@ import sys
 import logging
 import os
 from datetime import datetime
-from lighthouse import Lighthouse, clients
+from Lighthouse.lighthouse import Lighthouse, clients, connect
 
 def setup_logging(script_name):
     """
@@ -35,20 +35,8 @@ def parse_args():
     
     return parser.parse_args()
 
-def get_lighthouse_client(client_name, environment):
+def get_lighthouse_client(client_name, environment, debug=True):
     """
     Initializes and returns a Lighthouse API client based on configuration.
     """
-    try:
-        client_config = clients[environment][client_name]
-    except KeyError:
-        print(f"Erro: Configuração não encontrada para o cliente '{client_name}' no ambiente '{environment}'.")
-        print("Verifique se o cliente existe no dicionário 'clients' da biblioteca lighthouse.")
-        sys.exit(1)
-
-    return Lighthouse(
-        api_key=client_config["api_key"],
-        env=environment,
-        workspace_id=client_config["workspace_id"],
-        url=client_config["url"]
-    )
+    return connect(client_name, environment, debug)

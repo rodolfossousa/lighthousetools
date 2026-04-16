@@ -11,7 +11,7 @@ O objetivo principal é sincronizar dados provenientes de "Dicionários de Dados
 Certifique-se de ter o Python 3.8+ instalado e as seguintes dependências:
 
 ```bash
-pip install pandas openpyxl tqdm xlsxwriter numpy
+pip install pandas openpyxl tqdm xlsxwriter numpy pytest
 ```
 
 > **Nota:** Este projeto depende da biblioteca interna `lighthouse`. Certifique-se de que ela está acessível no seu ambiente Python.
@@ -25,6 +25,7 @@ pip install pandas openpyxl tqdm xlsxwriter numpy
 - `data_processor.py`: Motor de ingestão que detecta a versão da planilha e normaliza os dados para um schema único.
 - `utils.py`: Funções auxiliares para normalização de nomes, unidades e travessia de atributos.
 - `logs/`: Diretório gerado automaticamente para armazenar os logs de execução e relatórios.
+- `tests/`: Testes unitários (pytest) cobrindo o pipeline de ETL e funções utilitárias.
 
 ---
 
@@ -50,6 +51,18 @@ SHAPE_DOCS_PATH=C:\Users\SeuNome\Shape Digital\Implementation & Diagnostics - Do
 
 ### 3. Mapear as planilhas em `dictionaries.py`
 Defina as abas que devem ser processadas. Os caminhos das planilhas são construídos automaticamente a partir do `SHAPE_DOCS_PATH`. O script detectará automaticamente se a planilha segue o padrão V1 ou V2.
+
+---
+
+## Testes
+
+Os testes unitários cobrem o pipeline de ETL (`data_processor.py`) e funções utilitárias (`utils.py`), sem depender de arquivos Excel reais nem da API.
+
+```bash
+python -m pytest tests/ -v
+```
+
+Um pre-commit hook está configurado em `.git/hooks/pre-commit` e executa os testes automaticamente antes de cada `git commit`. Se algum teste falhar, o commit é bloqueado.
 
 ---
 

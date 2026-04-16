@@ -174,20 +174,27 @@ def get_template_enrollment_data(client_name=None):
     """
     df = ingest_pipeline(client_name)
 
-    # Remove logical duplicates within the same template
+    # Remove logical duplicates within the same template.
+    # NOTE: subattribute_name_norm must be included because clean_and_standardize_data
+    # splits "Parent | Child" into separate columns before this point, so attribute_name
+    # only contains the parent name for subattributes — without subattribute_name_norm
+    # all subattributes of the same parent would be treated as duplicates.
     df['Template_norm'] = df['template_name'].apply(
         lambda x: " ".join(x.strip().split()).lower() if isinstance(x, str) else x
     )
     df['attribute_name_norm'] = df['attribute_name'].apply(normalize_attribute_key)
-    
+    df['subattribute_name_norm'] = df['subattribute_name'].apply(
+        lambda x: " ".join(x.strip().split()).lower() if isinstance(x, str) else ''
+    )
+
     before_dedup = len(df)
-    df = df.drop_duplicates(subset=['Template_norm', 'attribute_level', 'attribute_name_norm'])
+    df = df.drop_duplicates(subset=['Template_norm', 'attribute_level', 'attribute_name_norm', 'subattribute_name_norm'])
     removed_duplicates = before_dedup - len(df)
-    
+
     if removed_duplicates > 0:
-        logging.info(f"Removidas {removed_duplicates} linhas duplicadas de templates (Template + attribute_level + attribute_name)")
-        
-    df = df.drop(columns=['Template_norm', 'attribute_name_norm'])
+        logging.info(f"Removidas {removed_duplicates} linhas duplicadas de templates (Template + attribute_level + attribute_name + subattribute_name)")
+
+    df = df.drop(columns=['Template_norm', 'attribute_name_norm', 'subattribute_name_norm'])
     
     return df
 

@@ -9,6 +9,7 @@ from utils import traverse_attributes, fix_unit_of_measurement
 from datetime import datetime
 from data_processor import get_item_enrollment_data
 from config import parse_args, get_lighthouse_client, setup_logging
+from Lighthouse.lighthouse import connect
 
 
 def find_attribute_reference(attribute_name: str, attribute_dict: dict) -> str:
@@ -184,7 +185,7 @@ def main(client_name, environment):
     
     logging.info(f"Initialized tracking for {len(tracking_data)} items ({len(attributes)} attributes, {len(subattributes)} subattributes)")
 
-    ws = get_lighthouse_client(client_name, environment)
+    ws = connect(client_name, environment, False)
     
     enrolled_items = ws.get_items()
 

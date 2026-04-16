@@ -10,6 +10,7 @@ from datetime import datetime
 from data_processor import get_template_enrollment_data
 from config import parse_args, get_lighthouse_client, setup_logging
 from utils import fix_unit_of_measurement
+from Lighthouse.lighthouse import connect
 
 
 def find_template_id_by_name(enrolled_templates, template_name):
@@ -23,13 +24,13 @@ def find_template_id_by_name(enrolled_templates, template_name):
             return template
     return None
 
-def find_category_id_by_name(categories, category_name):
+def find_category_id_by_name(ws, category_name):
     """
     Encontra ID da categoria pelo nome
     """
-    for category in categories:
-        if category["name"] == category_name:
-            return category["id"]
+    response = ws.get_categories(category_name)
+    if response and isinstance(response, list) and len(response) > 0:
+        return response[0]['id']
     return None
 
 def find_attribute_id_by_name(template_attributes, search_name):
@@ -122,7 +123,7 @@ def fix_categories_uuid(attribute, categories, ws = None):
         if not category_name or not isinstance(category_name, str):
             category_name = ""
         category_name = category_name.replace(";", "").strip()
-        category_id = find_category_id_by_name(categories, category_name)
+        category_id = find_category_id_by_name(ws, category_name)
 
         if not category_id:
             logging.warning(f"Category '{category_name}' not found")
@@ -131,9 +132,12 @@ def fix_categories_uuid(attribute, categories, ws = None):
             else:
                 ws.post_category({'name': category_name, 'group_id': find_attributes_group_id(ws)})
                 categories = ws.get_categories()
-                category_id = find_category_id_by_name(categories, category_name)
+                category_id = find_category_id_by_name(ws, category_name)
                 logging.info(f"cadastrada {category_name} com id: {category_id}")
-        categories_id_list.append(category_id)
+        if category_id:
+            categories_id_list.append(category_id)
+        else:
+            logging.error(f"Falha definitiva ao criar/encontrar categoria '{category_name}' - atributo será cadastrado sem ela")
 
     attribute['categories'] = categories_id_list
     return attribute
@@ -161,6 +165,31 @@ def is_number(val):
         return True
     except (ValueError, TypeError):
         return False
+
+def evaluate_api_response(response):
+    """
+    Normaliza a leitura de respostas da API para classificacao de sucesso/falha
+    e retorna uma string curta para auditoria no log.
+    """
+    if response is None:
+        return False, "empty_response"
+
+    if hasattr(response, 'status_code'):
+        status_code = getattr(response, 'status_code', None)
+        if status_code in [200, 201, 202]:
+            return True, f"http_{status_code}"
+        response_text = str(getattr(response, 'text', ''))
+        return False, f"http_{status_code}: {response_text}"[:500]
+
+    if isinstance(response, dict):
+        if response.get('id'):
+            return True, "dict_with_id"
+        return False, json.dumps(response, ensure_ascii=True)[:500]
+
+    if response:
+        return True, "truthy_response"
+
+    return False, "falsy_response"
 
 def enroll_default_attributes(ws, template_id, categories, template_name):
     template_attributes = ws.get_template_attributes(template_id)['attributes']
@@ -196,7 +225,12 @@ def enroll_attributes(ws, template_id, categories, excel_templates, template_nam
     attributes_to_enroll = excel_templates[excel_templates['attribute_level'] == 'attribute']
     attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['attribute_name'].notnull()]  # Drop lines where attribute_name is NaN
     attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['template_name'] == template_name]
-    attributes_to_enroll = attributes_to_enroll[['template_name', 'attribute_name', 'categories', 'decimal_places', 'unit_of_measurement', 'data_type']]
+    selected_columns = ['template_name', 'attribute_name', 'categories', 'decimal_places', 'unit_of_measurement', 'data_type']
+    if '__source_spreadsheet' in attributes_to_enroll.columns:
+        selected_columns.append('__source_spreadsheet')
+    if '__source_sheet' in attributes_to_enroll.columns:
+        selected_columns.append('__source_sheet')
+    attributes_to_enroll = attributes_to_enroll[selected_columns]
     attributes_to_enroll['attribute_name'] = attributes_to_enroll['attribute_name'].apply(lambda x: x.strip())
     attributes_to_enroll = attributes_to_enroll.rename(columns={
         'attribute_name': 'name',
@@ -210,12 +244,25 @@ def enroll_attributes(ws, template_id, categories, excel_templates, template_nam
     template_attributes = ws.get_template_attributes(template_id)['attributes']
     current_attributes = [attribute['name'].strip().lower() for attribute in template_attributes]
     status = {'enrolled': 0, 'skipped': 0, 'failed': 0}
-    attributes_status = {}
+    attributes_status = []
     for _, row in tqdm.tqdm(attributes_to_enroll.iterrows(), total=attributes_to_enroll.shape[0], desc=f"Cadastrando atributos de {template_name}"):
         attribute = row.to_dict()
+        source_spreadsheet = attribute.get('__source_spreadsheet', '')
+        source_sheet = attribute.get('__source_sheet', '')
         if attribute['name'].strip().lower() in current_attributes:
             attribute['status'] = 'skipped'
-            attributes_status[attribute['name']] = attribute
+            attribute['reason'] = 'already_exists'
+            attributes_status.append({
+                'template_name': template_name,
+                'attribute_level': 'attribute',
+                'parent_name': '',
+                'name': attribute['name'],
+                'status': attribute['status'],
+                'reason': attribute['reason'],
+                'payload': '',
+                'source_spreadsheet': source_spreadsheet,
+                'source_sheet': source_sheet
+            })
             status['skipped'] += 1
             continue
         # Parse multiple categories
@@ -235,22 +282,35 @@ def enroll_attributes(ws, template_id, categories, excel_templates, template_nam
         
         response = ws.post_template_attribute(template_id, data)
 
-        current_attributes.append(data['name'].lower()) # garante que não será adicionado novamente caso tenha linha duplicada
-        
-        if not response:
-            attribute['status'] = 'failed'
-            status['failed'] += 1
-        else:
+        is_success, response_detail = evaluate_api_response(response)
+
+        if is_success:
+            current_attributes.append(data['name'].lower()) # garante que não será adicionado novamente caso tenha linha duplicada
             attribute['status'] = 'enrolled'
+            attribute['reason'] = response_detail
             status['enrolled'] += 1
-        attributes_status[attribute['name']] = attribute
+        else:
+            attribute['status'] = 'failed'
+            attribute['reason'] = response_detail
+            status['failed'] += 1
+        attributes_status.append({
+            'template_name': template_name,
+            'attribute_level': 'attribute',
+            'parent_name': '',
+            'name': attribute['name'],
+            'status': attribute['status'],
+            'reason': attribute['reason'],
+            'payload': json.dumps(data, ensure_ascii=True),
+            'source_spreadsheet': source_spreadsheet,
+            'source_sheet': source_sheet
+        })
     logging.info(f"Template {template_name}: {status['enrolled']} cadastrados, {status['skipped']} já existiam, {status['failed']} falharam")
     log_file = f"logs/{template_name}_attributes_log.txt"
     with open(log_file, "w", encoding="utf-8") as f:
-        for attr_name, attr in attributes_status.items():
-            f.write(f"{attr_name}: {attr['status']}\n")
+        for attr in attributes_status:
+            f.write(f"{attr['name']}: {attr['status']} ({attr['reason']})\n")
     logging.debug(f"Log saved to {log_file}")
-    return status
+    return {'summary': status, 'details': attributes_status}
 
 def enroll_subattributes(ws, template_id, categories, excel_templates, template_name):
     template_attributes = ws.get_template_attributes(template_id)['attributes']
@@ -265,7 +325,12 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
     # since we separated them in data_processor
     subattributes_to_enroll['full_name'] = subattributes_to_enroll['attribute_name'] + ' | ' + subattributes_to_enroll['subattribute_name']
     
-    subattributes_to_enroll = subattributes_to_enroll[['template_name', 'full_name', 'categories', 'decimal_places', 'unit_of_measurement', 'value', 'data_type']]
+    selected_columns = ['template_name', 'full_name', 'categories', 'decimal_places', 'unit_of_measurement', 'value', 'data_type']
+    if '__source_spreadsheet' in subattributes_to_enroll.columns:
+        selected_columns.append('__source_spreadsheet')
+    if '__source_sheet' in subattributes_to_enroll.columns:
+        selected_columns.append('__source_sheet')
+    subattributes_to_enroll = subattributes_to_enroll[selected_columns]
     subattributes_to_enroll = subattributes_to_enroll.drop_duplicates()
     subattributes_to_enroll = subattributes_to_enroll.rename(columns={
         'full_name': 'name',
@@ -293,20 +358,44 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
         template_attributes_subattribute_dict[template_attribute['name']] = [attr['name'] for attr in subattributes_dict]
     
     status = {'enrolled': 0, 'skipped': 0, 'failed': 0, 'parent_not_found': 0}
-    subattributes_status = {}
+    subattributes_status = []
     for _, row in tqdm.tqdm(subattributes_to_enroll.iterrows(), total=subattributes_to_enroll.shape[0], desc=f"Cadastrando subatributos de {template_name}"):
         subattribute = row.to_dict()
+        source_spreadsheet = subattribute.get('__source_spreadsheet', '')
+        source_sheet = subattribute.get('__source_sheet', '')
         template_attribute_name = subattribute['parent_name']
         try:
             if subattribute['name'] in template_attributes_subattribute_dict[template_attribute_name]:
                 status['skipped'] += 1
                 subattribute['status'] = 'skipped'
-                subattributes_status[subattribute['name']] = subattribute
+                subattribute['reason'] = 'already_exists'
+                subattributes_status.append({
+                    'template_name': template_name,
+                    'attribute_level': 'subattribute',
+                    'parent_name': subattribute['parent_name'],
+                    'name': subattribute['name'],
+                    'status': subattribute['status'],
+                    'reason': subattribute['reason'],
+                    'payload': '',
+                    'source_spreadsheet': source_spreadsheet,
+                    'source_sheet': source_sheet
+                })
                 continue
         except KeyError:
             status['parent_not_found'] += 1
             subattribute['status'] = 'parent_not_found'
-            subattributes_status[subattribute['name']] = subattribute
+            subattribute['reason'] = 'parent_name_not_found'
+            subattributes_status.append({
+                'template_name': template_name,
+                'attribute_level': 'subattribute',
+                'parent_name': subattribute['parent_name'],
+                'name': subattribute['name'],
+                'status': subattribute['status'],
+                'reason': subattribute['reason'],
+                'payload': '',
+                'source_spreadsheet': source_spreadsheet,
+                'source_sheet': source_sheet
+            })
             continue
         # Parse multiple categories
         cat_str = subattribute['categories']
@@ -331,8 +420,19 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
         if pd.isna(data['parent_id']) or not data['parent_id']:
             logging.error(f"Erro: parent_id não encontrado para o subatributo '{data['name']}' (Pai: '{subattribute['parent_name']}'). Verifique se o atributo pai foi criado corretamente.")
             subattribute['status'] = 'failed_no_parent_id'
+            subattribute['reason'] = 'parent_id_missing'
             status['failed'] += 1
-            subattributes_status[f"{subattribute['parent_name']} | {subattribute['name']}"] = subattribute
+            subattributes_status.append({
+                'template_name': template_name,
+                'attribute_level': 'subattribute',
+                'parent_name': subattribute['parent_name'],
+                'name': subattribute['name'],
+                'status': subattribute['status'],
+                'reason': subattribute['reason'],
+                'payload': json.dumps(data, ensure_ascii=True),
+                'source_spreadsheet': source_spreadsheet,
+                'source_sheet': source_sheet
+            })
             continue
 
         data = fix_categories_uuid(data, categories, ws)
@@ -342,37 +442,43 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
         #     continue
         try:
             response = ws.post_template_attribute(template_id, data)
-            
-            is_success = False
-            if response and hasattr(response, 'status_code') and response.status_code in [200, 201, 202]:
-                is_success = True
-            elif isinstance(response, dict) and 'id' in response:
-                is_success = True
-            elif response and not hasattr(response, 'status_code') and not isinstance(response, dict):
-                is_success = True # Fallback for truthy objects without standard structure
+            is_success, response_detail = evaluate_api_response(response)
 
             if not is_success:
-                error_msg = getattr(response, 'text', str(response)) if response else "Empty response"
-                logging.error(f"Erro na API ao cadastrar subatributo '{data['name']}': {error_msg}")
+                logging.error(f"Erro na API ao cadastrar subatributo '{data['name']}': {response_detail}")
                 subattribute['status'] = 'failed'
+                subattribute['reason'] = response_detail
                 status['failed'] += 1
             else:
                 subattribute['status'] = 'enrolled'
+                subattribute['reason'] = response_detail
                 status['enrolled'] += 1
         except Exception as e:
             logging.error(f"Exceção ao cadastrar subatributo '{data['name']}': {e}")
             subattribute['status'] = 'failed'
+            subattribute['reason'] = str(e)
             status['failed'] += 1
             
-        subattributes_status[f"{subattribute['parent_name']} | {subattribute['name']}"] = subattribute
+        subattributes_status.append({
+            'template_name': template_name,
+            'attribute_level': 'subattribute',
+            'parent_name': subattribute['parent_name'],
+            'name': subattribute['name'],
+            'status': subattribute['status'],
+            'reason': subattribute['reason'],
+            'payload': json.dumps(data, ensure_ascii=True),
+            'source_spreadsheet': source_spreadsheet,
+            'source_sheet': source_sheet
+        })
     logging.info(
         f"Template {template_name} subattributes: {status['enrolled']} cadastrados, {status['skipped']} pulados, {status['failed']} falharam, {status['parent_not_found']} órfãos")
     log_file = f"logs/{template_name}_subattributes_log.txt"
     with open(log_file, "w", encoding="utf-8") as f:
-        for attr_name, attr in subattributes_status.items():
-            f.write(f"{attr_name}: {attr['status']}\n")
+        for attr in subattributes_status:
+            full_name = f"{attr['parent_name']} | {attr['name']}" if attr['parent_name'] else attr['name']
+            f.write(f"{full_name}: {attr['status']} ({attr['reason']})\n")
     logging.debug(f"Log saved to {log_file}")
-    return status
+    return {'summary': status, 'details': subattributes_status}
 
 def fix_attribute_with_limits(client_name, environment):
     ws = get_lighthouse_client(client_name, environment)
@@ -400,7 +506,7 @@ def fix_attribute_with_limits(client_name, environment):
 
 
 def pipeline(client_name, environment):
-    ws = get_lighthouse_client(client_name, environment)
+    ws = connect(client_name, environment, False)
 
     logging.info(f"Buscando e processando dados para o cliente: {client_name}...")
     try:
@@ -427,7 +533,7 @@ def pipeline(client_name, environment):
     attributes_goup_id = find_attributes_group_id(ws)
     for category in all_categories:
         # get or create category
-        category_id = find_category_id_by_name(categories, category)
+        category_id = find_category_id_by_name(ws, category)
         if not category_id:
             logging.info(f"Categoria {category} não encontrada. Cadastrando...")
             response = ws.post_category({'name': category, 'group_id': attributes_goup_id})
@@ -440,6 +546,7 @@ def pipeline(client_name, environment):
     # 4. Processar cadastro de templates, atributos e subatributos
     enrolled_templates = ws.get_templates()
     summary_tracking = []
+    detailed_tracking = []
     for template_name in unique_templates:
         logging.info(f"Verificando template {template_name}")
         template_id = find_template_id_by_name(enrolled_templates, template_name)
@@ -454,10 +561,16 @@ def pipeline(client_name, environment):
         # Remove linhas em que template + atributo + subatributo estejam duplicados
         # excel_templates = excel_templates.drop_duplicates(subset=['Template', 'attribute_name'])
 
-        # enroll_default_attributes(ws, template_id, categories, template_name)
+        enroll_default_attributes(ws, template_id, categories, template_name)
         enroll_default_subattributes(ws, template_id, categories, template_name)
-        attr_status = enroll_attributes(ws, template_id, categories, excel_templates, template_name)
-        subattr_status = enroll_subattributes(ws, template_id, categories, excel_templates, template_name)
+        attr_result = enroll_attributes(ws, template_id, categories, excel_templates, template_name)
+        subattr_result = enroll_subattributes(ws, template_id, categories, excel_templates, template_name)
+        attr_status = attr_result['summary'] if attr_result else None
+        subattr_status = subattr_result['summary'] if subattr_result else None
+        if attr_result:
+            detailed_tracking.extend(attr_result['details'])
+        if subattr_result:
+            detailed_tracking.extend(subattr_result['details'])
         summary_tracking.append({
             'template_name': template_name,
             'attributes_enrolled': attr_status['enrolled'] if attr_status else 0,
@@ -469,9 +582,9 @@ def pipeline(client_name, environment):
             'subattributes_parent_not_found': subattr_status['parent_not_found'] if subattr_status else 0
         })
         
-    generate_templates_summary_report(summary_tracking, client_name, environment)
+    generate_templates_summary_report(summary_tracking, detailed_tracking, client_name, environment)
 
-def generate_templates_summary_report(summary_tracking, client_name, environment):
+def generate_templates_summary_report(summary_tracking, detailed_tracking, client_name, environment):
 
     total_templates = len(summary_tracking)
     total_attr_enrolled = sum(t['attributes_enrolled'] for t in summary_tracking)
@@ -489,7 +602,19 @@ def generate_templates_summary_report(summary_tracking, client_name, environment
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"logs/templates_global_report_{client_name}_{environment}_{timestamp}.xlsx"
-    df = pd.DataFrame(summary_tracking)
+    template_df = pd.DataFrame(summary_tracking)
+    execution_df = pd.DataFrame(detailed_tracking)
+    if execution_df.empty:
+        execution_df = pd.DataFrame(columns=[
+            'template_name', 'attribute_level', 'parent_name', 'name',
+            'status', 'reason', 'payload', 'source_spreadsheet', 'source_sheet'
+        ])
+
+    if not execution_df.empty:
+        execution_df = execution_df.sort_values(
+            by=['template_name', 'attribute_level', 'parent_name', 'name'],
+            na_position='last'
+        )
     summary_data = {
         'Metric': [
             'Templates processed',
@@ -505,7 +630,8 @@ def generate_templates_summary_report(summary_tracking, client_name, environment
     summary_df = pd.DataFrame(summary_data)
     with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        df.to_excel(writer, sheet_name='Detailed_Report', index=False)
+        execution_df.to_excel(writer, sheet_name='Detailed_Report', index=False)
+        template_df.to_excel(writer, sheet_name='Template_Summary', index=False)
     logging.info(f"Global summary report saved to: {output_filename}")
 
 
