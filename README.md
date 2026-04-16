@@ -20,12 +20,14 @@ pip install pandas openpyxl tqdm xlsxwriter numpy pytest
 
 - `templates.py`: Script para criar/atualizar Templates e seus Atributos.
 - `items.py`: Script para atualizar os valores dos atributos nos Itens (equipamentos) já existentes.
+- `verify_enrollment.py`: Script de verificação — compara o que está cadastrado em templates e atributos na API com o dicionário de dados.
+- `verify_items.py`: Script de verificação — compara o que está cadastrado nos equipamentos (referências, valores manuais) com o dicionário de dados.
 - `config.py`: Centraliza a configuração do cliente API e o sistema de logs.
 - `dictionaries.py`: Arquivo de configuração que mapeia onde estão os arquivos Excel de cada cliente.
 - `data_processor.py`: Motor de ingestão que detecta a versão da planilha e normaliza os dados para um schema único.
 - `utils.py`: Funções auxiliares para normalização de nomes, unidades e travessia de atributos.
 - `logs/`: Diretório gerado automaticamente para armazenar os logs de execução e relatórios.
-- `tests/`: Testes unitários (pytest) cobrindo o pipeline de ETL e funções utilitárias.
+- `tests/`: Testes unitários (pytest) cobrindo o pipeline de ETL, funções utilitárias e lógica de templates.
 
 ---
 
@@ -81,7 +83,21 @@ python shape_workspace_wrapper/templates.py <cliente> [ambiente]
 Envia os valores reais (tags ou constantes) para os equipamentos existentes.
 
 ```bash
-python shape_workspace_wrapper/items.py <cliente> [ambiente]
+python items.py <cliente> [ambiente]
+```
+
+### 3. Verificar Cadastro de Templates
+Compara o que está cadastrado nos templates da API (atributos, subatributos, categorias, unidades) com o dicionário de dados. Gera um relatório `.xlsx` em `logs/` com todas as divergências.
+
+```bash
+python verify_enrollment.py <cliente> [ambiente]
+```
+
+### 4. Verificar Cadastro de Equipamentos
+Compara o que está cadastrado nos itens do workspace (presença de atributos, referências de tags, valores manuais) com o dicionário de dados. Gera um relatório `.xlsx` em `logs/`.
+
+```bash
+python verify_items.py <cliente> [ambiente]
 ```
 
 ---
