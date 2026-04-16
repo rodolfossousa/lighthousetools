@@ -13,7 +13,7 @@ template_attribute_ids = template_attributes['id'].tolist()
 
 
 for template_attribute_id in template_attribute_ids:
-    print(f"Deleting template attribute with id: {template_attribute_id}")
+    print(f"Deleting template attribute with id: {template_attribute_id}", end='\r')
     response = ws.delete_template_attribute(template_attribute_id)
     if response.status_code in [204, 200]:
         print(f"Successfully deleted template attribute with id: {template_attribute_id}")

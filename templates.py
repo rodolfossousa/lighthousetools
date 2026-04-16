@@ -26,11 +26,13 @@ def find_template_id_by_name(enrolled_templates, template_name):
 
 def find_category_id_by_name(ws, category_name):
     """
-    Encontra ID da categoria pelo nome
+    Encontra ID da categoria pelo nome (match exato).
     """
     response = ws.get_categories(category_name)
-    if response and isinstance(response, list) and len(response) > 0:
-        return response[0]['id']
+    if response and isinstance(response, list):
+        for cat in response:
+            if cat.get('name') == category_name:
+                return cat['id']
     return None
 
 def find_attribute_id_by_name(template_attributes, search_name):
@@ -224,7 +226,7 @@ def enroll_default_subattributes(ws, template_id, categories, template_name):
 def enroll_attributes(ws, template_id, categories, excel_templates, template_name):
     attributes_to_enroll = excel_templates[excel_templates['attribute_level'] == 'attribute']
     attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['attribute_name'].notnull()]  # Drop lines where attribute_name is NaN
-    attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['template_name'] == template_name]
+    attributes_to_enroll = attributes_to_enroll[attributes_to_enroll['template_name'] == template_name].copy()
     selected_columns = ['template_name', 'attribute_name', 'categories', 'decimal_places', 'unit_of_measurement', 'data_type']
     if '__source_spreadsheet' in attributes_to_enroll.columns:
         selected_columns.append('__source_spreadsheet')
@@ -319,8 +321,8 @@ def enroll_subattributes(ws, template_id, categories, excel_templates, template_
     if subattributes_to_enroll[subattributes_to_enroll['template_name'] == template_name].shape[0] == 0:
         logging.info(f"Nenhum subatributo para cadastrar no template {template_name}")
         return None
-    subattributes_to_enroll = subattributes_to_enroll[subattributes_to_enroll['template_name'] == template_name]
-    
+    subattributes_to_enroll = subattributes_to_enroll[subattributes_to_enroll['template_name'] == template_name].copy()
+
     # We reconstruct the 'name' column as parent|child for legacy logic compatibility 
     # since we separated them in data_processor
     subattributes_to_enroll['full_name'] = subattributes_to_enroll['attribute_name'] + ' | ' + subattributes_to_enroll['subattribute_name']
