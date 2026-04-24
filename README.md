@@ -102,6 +102,59 @@ python verify_items.py <cliente> [ambiente]
 
 ---
 
+## Scripts Auxiliares (`other_scripts/`)
+
+Scripts interativos (blocos `#%%`) para tarefas pontuais que não fazem parte do pipeline principal. Cada um deve ter o `CLIENT` e o `ENVIRONMENT` ajustados antes de executar.
+
+### `audit_health_score.py`
+Audita e corrige os atributos de **Health Score** de todos os itens de um workspace.
+
+- Determina se cada item é **folha** (sem filhos) ou **não-folha** usando o campo `has_children` da API.
+- Verifica se o atributo `Health Score Method` está com o valor correto:
+  - Folha → `"Complex Average"`
+  - Não-folha → `"Weighted Average"`
+- Identifica itens com atributos/subatributos de HS ausentes e os cadastra no template correspondente.
+- Gera relatório `.xlsx` em `logs/` com o resultado de cada verificação e correção.
+
+### `enroll_default_attrs_all_templates.py`
+Garante que **todos os templates** do workspace possuem os atributos e subatributos padrão definidos em `default_attributes.json`.
+
+- Itera sobre todos os templates e chama o mesmo mecanismo de cadastro do pipeline principal (`enroll_default_attributes` / `enroll_default_subattributes`).
+- Ao final, faz uma verificação pós-cadastro e lista o que ainda estiver ausente.
+- Gera relatório `.xlsx` em `logs/`.
+
+### `update_item_categories_jirau.py`
+Atualiza as **categorias de itens** com base no template ao qual pertencem.
+
+- Mapeamento configurável no topo do script (`TEMPLATE_CATEGORY_MAP`).
+- Encontra ou cria cada categoria necessária antes de atribuí-la.
+- Usa `POST /items/{id}/categories` (adiciona sem remover categorias existentes).
+- Verifica se o item já possui a categoria antes de fazer a chamada.
+- Gera relatório `.xlsx` em `logs/` com status `updated` / `skipped` / `failed` por item.
+
+### `get_template_attribute_ids.py`
+Exporta os atributos de templates selecionados para um arquivo `template_attributes.csv`.
+
+- Filtra por uma lista de nomes de templates e por `data_source` (por padrão, exclui atributos manuais para manter apenas os de time series).
+- O CSV gerado deve ser **revisado manualmente** antes de ser usado como entrada do script de deleção.
+- > ⚠️ Verifique com atenção: atributos cadastrados por outros dicionários de dados (ex: `Status`, `Tag SAP`, `Tag Oil Analysis`) **não devem** ser incluídos na deleção.
+
+### `delete_template_attributes.py`
+Deleta em lote os atributos de template listados em `template_attributes.csv` (gerado pelo script acima).
+
+- Lê o CSV, extrai os IDs e chama `DELETE /template/attributes/{id}` para cada um.
+- Deve ser executado **somente após revisão cuidadosa** do CSV de entrada.
+
+### `export_models_and_attributes.py`
+Exporta todos os modelos (generators) e atributos de todos os itens abaixo de um nó raiz para um arquivo `.xlsx`.
+
+- Percorre a árvore de itens recursivamente a partir de um `ROOT_NODE` configurável.
+- Para cada item, busca em paralelo os generators e os atributos (incluindo subatributos).
+- Salva progresso incremental em `.parquet` para evitar perda de dados em execuções longas.
+- Útil para auditorias gerais, análise de cobertura de modelos e exportação de inventário.
+
+---
+
 ## Padrão das Planilhas (Ingestão Automática)
 
 O sistema de ingestão (`ingest_pipeline`) é capaz de identificar e processar dois formatos de planilha:

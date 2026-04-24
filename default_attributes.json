@@ -107,7 +107,7 @@
         "unit_of_measurement": "%"
     },
     {
-        "name": "HealthScore Weight",
+        "name": "Health Score Weight",
         "description": "",
         "categories": ["Health Score"],
         "default_value": "1",

@@ -20,7 +20,6 @@ e não devem ser deletados.
 
 
 
-
 """
 
 from lighthouse import connect

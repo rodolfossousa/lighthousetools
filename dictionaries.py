@@ -101,15 +101,21 @@ DICTIONARIES = {
         # }
     ],
     "jirau": [
+        # {
+        #     "spreadsheet": _p(r"04. Jirau\Dicionário de Dados\Dicionario de Dados SMARTUG.xlsx"),
+        #     "tabs": [
+        #         # "Motoventiladores",
+        #         # "Sensores IFM",
+        #         # "Sensores IFM_Limiares",
+        #         # "dicionario_planta",
+        #         # "Dicionario Unidades Geradoras",
+        #         "Status"
+        #     ],
+        # },
         {
-            "spreadsheet": _p(r"04. Jirau\Dicionário de Dados\Dicionario de Dados SMARTUG.xlsx"),
+            "spreadsheet": _p(r"04. Jirau\Dicionário de Dados\dicionario_de_dados_jirau_health_score.xlsx"),
             "tabs": [
-                # "Motoventiladores",
-                # "Sensores IFM",
-                # "Sensores IFM_Limiares",
-                # "dicionario_planta",
-                # "Dicionario Unidades Geradoras",
-                "Status"
+                "Health Score JIRAU"
             ],
         },
     ],

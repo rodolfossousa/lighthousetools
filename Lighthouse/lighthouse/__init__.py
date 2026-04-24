@@ -118,10 +118,17 @@ class Lighthouse:
         return dict(result)
     
     def get_template_items(self, traverse=True, template_name=None):
+        """
+        Retorna itens filtrados por template usando GET /workspaces/{id}/items.
+        Usa only_root=False para retornar todos os níveis da hierarquia.
+        Nota: get_items() usa o endpoint /items/tree que NÃO suporta filtro por template_name.
+        """
         url = f"{self.root_url}/workspaces/{self.workspace_id}/items"
-        response = self.get(url, data={"template_name": template_name} if template_name else None)
+        query = {"only_root": "false"}
+        if template_name:
+            query["template_name"] = template_name
+        response = self.get(url, data=query)
 
-        # Se não precisar transformar em um dict de id:name, retorna o response original (quando quer a árvore completa)
         if not traverse:
             return response
 
@@ -133,6 +140,25 @@ class Lighthouse:
         return dict(result)
     
     def get_item_details(self, item_id):
+        url = f"{self.root_url}/items/{item_id}"
+        response = self.get(url)
+        return response
+
+    def get_item(self, item_id):
+        """
+        Retorna os detalhes completos de um item, incluindo template e has_children.
+
+        Resposta relevante:
+        {
+            "id": "...",
+            "name": "...",
+            "template": {"id": "...", "name": "...", "categories": [...]},
+            "has_children": true,
+            "path": "...",
+            "attributes": [...],
+            ...
+        }
+        """
         url = f"{self.root_url}/items/{item_id}"
         response = self.get(url)
         return response
@@ -539,6 +565,30 @@ class Lighthouse:
         response = self.get(url, data=payload or None)
         return response
     
+    def get_item_categories(self, item_id: str) -> dict:
+        """
+        Retorna todas as categorias de um item.
+        Resposta: {"categories": [{"id": "...", "name": "..."}, ...]}
+        """
+        url = f"{self.root_url}/items/{item_id}/categories"
+        return self.get(url)
+
+    def add_item_categories(self, item_id: str, category_ids: list) -> requests.Response:
+        """
+        Adiciona categorias a um item sem remover as existentes.
+        category_ids: lista de UUIDs. Exemplo: ["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
+        """
+        url = f"{self.root_url}/items/{item_id}/categories"
+        return self.post(url, {"category_ids": category_ids})
+
+    def replace_item_categories(self, item_id: str, category_ids: list) -> requests.Response:
+        """
+        Substitui todas as categorias de um item pelas fornecidas.
+        category_ids: lista de UUIDs.
+        """
+        url = f"{self.root_url}/items/{item_id}/categories"
+        return self.put(url, {"category_ids": category_ids})
+
     def create_item(self, template_id, item_data:dict) -> requests.Response:
         """
         Creates a new item based on a specified template.

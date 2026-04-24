@@ -2,6 +2,7 @@
 Código para fazer cadastro de templates em um workspace específico
 """
 
+import os
 import pandas as pd
 import json
 import tqdm
@@ -43,7 +44,8 @@ def find_attribute_id_by_name(template_attributes, search_name):
     return None
     
 def get_default_attributes_and_subattributes():
-    with open("default_attributes.json", "r", encoding='utf8') as f:
+    _path = os.path.join(os.path.dirname(__file__), "default_attributes.json")
+    with open(_path, "r", encoding='utf8') as f:
         all_default_attributes = json.load(f)
 
         # Cria uma cópia para manipular e manter apenas atributos sem subatributos
