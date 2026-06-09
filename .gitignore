@@ -3,6 +3,7 @@ logs/
 !README.md
 *pycache*
 .env
+clients.json
 *.egg-info/
 *.csv
 .claude/

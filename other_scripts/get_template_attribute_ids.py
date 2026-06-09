@@ -27,7 +27,13 @@ import pandas as pd
 
 client_name = "prio"
 environment = "prod"
-templates_to_use = ['Electric Generator for GE LM2500 PLUS', 'Gas Turbine GE LM2500 PLUS', 'Electric Generator', 'Gas Turbine GE LM2500']
+templates_to_use = [
+"Compressor Centrífugo Básico",
+"Motor High Voltage",
+"Compressor Screw Basic",
+"Compressor Alternativo",
+"Compressor Generic",
+"Motor Elétrico Toshiba"]
 
 
 

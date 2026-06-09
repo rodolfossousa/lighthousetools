@@ -1,0 +1,23 @@
+{
+    "prod": {
+        "cliente": {
+            "api_key": "SUA_API_KEY_AQUI",
+            "workspace_id": "SEU_WORKSPACE_ID_AQUI",
+            "url": "https://jarvis.shapedigital.com/shapi"
+        }
+    },
+    "dev": {
+        "cliente": {
+            "api_key": "SUA_API_KEY_AQUI",
+            "workspace_id": "SEU_WORKSPACE_ID_AQUI",
+            "url": "https://jarvis-dev.shapedigital.com/shapi"
+        }
+    },
+    "homol": {
+        "cliente": {
+            "api_key": "SUA_API_KEY_AQUI",
+            "workspace_id": "SEU_WORKSPACE_ID_AQUI",
+            "url": "https://jarvis-dev.shapedigital.com/shapi"
+        }
+    }
+}

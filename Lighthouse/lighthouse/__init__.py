@@ -15,6 +15,9 @@ modelos = workspace.get_item_generators(item_id="3fa85f64-5717-4562-b3fc-2c963f6
 """
 import requests
 import copy
+import json
+import os
+from pathlib import Path
 from typing import List, Dict
 
 class Lighthouse:
@@ -623,6 +626,14 @@ class Lighthouse:
         return self.delete(url, data={})
     
 
+    def update_item(self, item_id: str, data: dict) -> requests.Response:
+        url = f"{self.root_url}/items/{item_id}"
+        return self.patch(url, data)
+
+    def delete_item(self, item_id: str) -> requests.Response:
+        url = f"{self.root_url}/items/{item_id}"
+        return self.delete(url, data={})
+
     def change_generator_status(self, generator_id:str, status:str) -> requests.Response:
         """
         Change the status of a generator for a specific item. From ONLINE to OFFLINE or vice versa.
@@ -735,26 +746,25 @@ class DummyResponse:
     def json(self):
         return {"message": "Debug mode - no data posted."}
 
-clients = {
-    "prod": {
-        "jirau": {"api_key": "-T_j9Te_Nuo8VVqUgVqkvsgvsmvAf0Bf0Do1_eF6HXA", "workspace_id": "2dbb0d62-78b7-452a-bfb0-78de5bde27c7", "url": "https://jarvis.shapedigital.com/shapi"},
-        "tag": {"api_key": "xG483f8bokCX2FHbNFTQ1c4mWZb5SyvUSOf1s5S-BWE", "workspace_id": "e79995c6-d8a8-4a3d-ae85-62e3be62fdab", "url": "https://jarvis.shapedigital.com/shapi"},
-        "prio": {"api_key": "KBHw4apiw__Uhh6QZnZYN1uTL3gKz7mQ7KZCeIao4zg", "workspace_id": "0462133f-1a02-46b0-a0e2-ca7f7dc5db56", "url": "https://jarvis.shapedigital.com/shapi"},
-        "petroreconcavo": {"api_key": "EV4AF5ANaiywAOGo9_kw4nh6Tm8oTtxH6m5G2WkQcrY", "workspace_id": "e3493397-0db3-4951-a8f9-e3fabf4acfbd", "url": "https://jarvis.shapedigital.com/shapi"},
-        "modec": {"api_key": "jS3RmxioLFBXRyjuaCSVrTbRQ9258tFE8xlIhR9iJfE", "workspace_id": "ab51fd98-545d-42cd-ad7f-5b7a8ebaf5e3", "url": "https://modec-jarvis.shapedigital.com/shapi"},
-    },
-    "dev": {
-        "tag": {"api_key": "grE5esiRzVZHVlkAcLnBz8j0Bsre2AZhZW-NVAPl7xg", "workspace_id": "e79995c6-d8a8-4a3d-ae85-62e3be62fdab", "url": "https://jarvis-dev.shapedigital.com/shapi"},
-        "petroreconcavo": {"api_key": "jFXsSoCpDPWeeYChbG6LsTcQj_wve_GCadROZuffSGo", "workspace_id": "9d355e8f-2ff1-4887-8754-7f1546f04c9a", "url": "https://jarvis.shapedigital.com/shapi"},
-        "jirau": {"api_key": "T7KC7EyyGvKdEAFtJPTyu5S6LtilzFbJiPaXmB6NNGA", "workspace_id": "2dbb0d62-78b7-452a-bfb0-78de5bde27c7", "url": "https://jarvis.shapedigital.com/shapi"},
-        "prio": {"api_key": "dvST9EbxxWnEw404AhgVx-QNOxqqH3x64aiadzGpmTU", "workspace_id": "0462133f-1a02-46b0-a0e2-ca7f7dc5db56", "url": "https://jarvis.shapedigital.com/shapi"},
-        },
-    "homol": {
-        "tag": {"api_key": "grE5esiRzVZHVlkAcLnBz8j0Bsre2AZhZW-NVAPl7xg", "workspace_id": "e79995c6-d8a8-4a3d-ae85-62e3be62fdab", "url": "https://jarvis-dev.shapedigital.com/shapi"},
-        "petroreconcavo": {"api_key": "jFXsSoCpDPWeeYChbG6LsTcQj_wve_GCadROZuffSGo", "workspace_id": "9d355e8f-2ff1-4887-8754-7f1546f04c9a", "url": "https://jarvis.shapedigital.com/shapi"},
-        "jirau": {"api_key": "T7KC7EyyGvKdEAFtJPTyu5S6LtilzFbJiPaXmB6NNGA", "workspace_id": "2dbb0d62-78b7-452a-bfb0-78de5bde27c7", "url": "https://jarvis.shapedigital.com/shapi"},
-        "prio": {"api_key": "dvST9EbxxWnEw404AhgVx-QNOxqqH3x64aiadzGpmTU", "workspace_id": "0462133f-1a02-46b0-a0e2-ca7f7dc5db56", "url": "https://jarvis.shapedigital.com/shapi"},
-        }
-}
+def _load_clients() -> dict:
+    candidates = [
+        Path(os.environ.get("CLIENTS_JSON_PATH", "")),
+        Path(__file__).resolve().parent.parent.parent / "clients.json",
+        Path("/app/clients.json"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+
+    env_json = os.environ.get("LIGHTHOUSE_CLIENTS")
+    if env_json:
+        return json.loads(env_json)
+
+    raise FileNotFoundError(
+        "clients.json nao encontrado e variavel LIGHTHOUSE_CLIENTS nao definida."
+    )
+
+clients = _load_clients()
 
 __all__ = ["Lighthouse", "connect", "clients"]
