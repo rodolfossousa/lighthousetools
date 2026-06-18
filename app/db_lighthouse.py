@@ -34,11 +34,17 @@ def init_lighthouse_db():
         )
     """)
 
-    try:
-        conn.execute("ALTER TABLE lighthouse_attributes ADD COLUMN parent_attribute_id TEXT DEFAULT ''")
-        conn.commit()
-    except Exception:
-        pass
+    for col, default in [
+        ("parent_attribute_id", "''"),
+        ("unit_of_measurement", "''"),
+        ("decimal_places", "''"),
+        ("description", "''"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE lighthouse_attributes ADD COLUMN {col} TEXT DEFAULT {default}")
+            conn.commit()
+        except Exception:
+            pass
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS template_attributes (
@@ -217,7 +223,10 @@ def get_item_tree(vessel: str) -> list[dict]:
 def get_item_attributes(item_id: str) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute("""
-        SELECT id_attribute, name_attribute, value, specification, reference, category
+        SELECT id_attribute, name_attribute, value, specification, reference, category,
+               COALESCE(unit_of_measurement, '') AS unit_of_measurement,
+               COALESCE(decimal_places, '') AS decimal_places,
+               COALESCE(description, '') AS description
         FROM lighthouse_attributes
         WHERE id = ? AND type = 'attribute'
         ORDER BY category, name_attribute
@@ -233,6 +242,25 @@ def update_attribute_value_in_db(item_id: str, attribute_id: str, new_value: str
         SET value = ?
         WHERE id = ? AND id_attribute = ? AND type = 'attribute'
     """, (new_value, item_id, attribute_id))
+    conn.commit()
+    conn.close()
+
+
+def update_attribute_fields_in_db(item_id: str, attribute_id: str, attr_type: str, **fields):
+    conn = _get_conn()
+    allowed = {"value", "reference", "unit_of_measurement", "decimal_places", "description"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        conn.close()
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values())
+    values.extend([item_id, attribute_id, attr_type])
+    conn.execute(f"""
+        UPDATE lighthouse_attributes
+        SET {set_clause}
+        WHERE id = ? AND id_attribute = ? AND type = ?
+    """, values)
     conn.commit()
     conn.close()
 
@@ -321,7 +349,10 @@ def get_item_subattributes(item_id: str) -> list[dict]:
     rows = conn.execute("""
         SELECT s.id_attribute, s.name_attribute, s.value, s.specification,
                s.parent_attribute_id, s.category,
-               p.name_attribute AS parent_name, p.reference AS parent_reference
+               p.name_attribute AS parent_name, p.reference AS parent_reference,
+               COALESCE(s.unit_of_measurement, '') AS unit_of_measurement,
+               COALESCE(s.decimal_places, '') AS decimal_places,
+               COALESCE(s.description, '') AS description
         FROM lighthouse_attributes s
         LEFT JOIN lighthouse_attributes p
             ON s.id = p.id AND s.parent_attribute_id = p.id_attribute AND p.type = 'attribute'

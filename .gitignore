@@ -8,3 +8,8 @@ clients.json
 *.csv
 .claude/
 .pytest_cache/
+node_modules/
+.next/
+*.db
+users.db
+lighthouse_attributes.db

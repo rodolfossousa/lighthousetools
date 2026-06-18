@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Base/rocks -->
+  <path d="M8 42 h32 l-4-4 H12 Z" fill="#3A7AE0" opacity="0.3"/>
+  <!-- Tower body -->
+  <path d="M18 38 L20 12 h8 L30 38 Z" fill="#5C9DFF"/>
+  <!-- Tower stripes -->
+  <rect x="19.5" y="18" width="9" height="3" rx="0.5" fill="#FFFFFF" opacity="0.35"/>
+  <rect x="19" y="24" width="10" height="3" rx="0.5" fill="#FFFFFF" opacity="0.35"/>
+  <rect x="18.5" y="30" width="11" height="3" rx="0.5" fill="#FFFFFF" opacity="0.35"/>
+  <!-- Lamp house -->
+  <rect x="19" y="8" width="10" height="5" rx="1.5" fill="#8BBBFF"/>
+  <!-- Light beam left -->
+  <path d="M19 10.5 L6 6 L8 12 Z" fill="#FFA726" opacity="0.5"/>
+  <!-- Light beam right -->
+  <path d="M29 10.5 L42 6 L40 12 Z" fill="#FFA726" opacity="0.5"/>
+  <!-- Lamp glow -->
+  <circle cx="24" cy="10.5" r="2.5" fill="#FFA726"/>
+  <circle cx="24" cy="10.5" r="1.5" fill="#FFD54F"/>
+  <!-- Dome/cap -->
+  <path d="M21 8 Q24 3 27 8 Z" fill="#3A7AE0"/>
+  <!-- Door -->
+  <rect x="22" y="33" width="4" height="5" rx="2" fill="#3A7AE0"/>
+</svg>
