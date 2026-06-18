@@ -77,9 +77,9 @@ if not exist "%~dp0clients.json" (
     echo ===========================================
     echo   ATENCAO: clients.json nao encontrado!
     echo ===========================================
-    echo   Crie o ficheiro clients.json na raiz do
-    echo   projeto com as chaves de API dos ambientes.
-    echo   Consulte um colega para obter as credenciais.
+    echo   1. Copie clients.example.json para clients.json
+    echo   2. Preencha com as api_key e workspace_id reais
+    echo   3. Consulte um colega para obter as credenciais
     echo ===========================================
     echo.
 )
