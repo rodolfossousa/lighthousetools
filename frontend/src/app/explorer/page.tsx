@@ -44,6 +44,8 @@ import {
   FolderOpen,
   Settings as GearIcon,
   AccountTree as TreeIcon,
+  DirectionsBoat as BoatIcon,
+  Business as OrgIcon,
 } from "@mui/icons-material";
 import { SimpleTreeView, TreeItem } from "@mui/x-tree-view";
 import AppLayout from "@/components/layout/AppLayout";
@@ -51,27 +53,39 @@ import { api } from "@/lib/api";
 import type { ItemNode, ItemAttribute, SubAttribute } from "@/types";
 
 const COLORS = {
+  org: "#AB47BC",
+  vessel: "#26C6DA",
   system: "#66BB6A",
   subsystem: "#42A5F5",
   equipment: "#FFA726",
 };
 
-function getItemColor(node: ItemNode) {
-  if (node.is_leaf) return COLORS.equipment;
-  if (node.parent_id) return COLORS.subsystem;
-  return COLORS.system;
+function getItemStyle(node: ItemNode): { color: string; icon: React.ReactNode; label: string } {
+  if (!node.has_children) {
+    return { color: COLORS.equipment, icon: <GearIcon sx={{ fontSize: 14, color: COLORS.equipment }} />, label: "Equipamento" };
+  }
+  switch (node.depth) {
+    case 0:
+      return { color: COLORS.org, icon: <OrgIcon sx={{ fontSize: 14, color: COLORS.org }} />, label: "Organização" };
+    case 1:
+      return { color: COLORS.vessel, icon: <BoatIcon sx={{ fontSize: 14, color: COLORS.vessel }} />, label: "Navio" };
+    case 2:
+      return { color: COLORS.system, icon: <FolderOpen sx={{ fontSize: 14, color: COLORS.system }} />, label: "Sistema" };
+    default:
+      return { color: COLORS.subsystem, icon: <TreeIcon sx={{ fontSize: 14, color: COLORS.subsystem }} />, label: "Subsistema" };
+  }
 }
 
-function getItemIcon(node: ItemNode) {
-  if (node.is_leaf) return <GearIcon sx={{ fontSize: 14, color: COLORS.equipment }} />;
-  if (node.parent_id) return <TreeIcon sx={{ fontSize: 14, color: COLORS.subsystem }} />;
-  return <FolderOpen sx={{ fontSize: 14, color: COLORS.system }} />;
+function getEnvParams() {
+  const env = localStorage.getItem("lh_environment") || "";
+  const client = localStorage.getItem("lh_client_name") || "";
+  return { env, client, qs: `environment=${encodeURIComponent(env)}&client_name=${encodeURIComponent(client)}` };
 }
 
 export default function ExplorerPage() {
-  const [vessels, setVessels] = useState<string[]>([]);
-  const [selectedVessel, setSelectedVessel] = useState("");
-  const [items, setItems] = useState<ItemNode[]>([]);
+  const [allItems, setAllItems] = useState<ItemNode[]>([]);
+  const [loading, setLoading] = useState(false);
+
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [attributes, setAttributes] = useState<ItemAttribute[]>([]);
   const [subattributes, setSubattributes] = useState<SubAttribute[]>([]);
@@ -79,30 +93,36 @@ export default function ExplorerPage() {
   const [tab, setTab] = useState(0);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  // Edit dialog state
   const [editAttr, setEditAttr] = useState<(ItemAttribute | SubAttribute) | null>(null);
   const [editType, setEditType] = useState<"attribute" | "subattribute">("attribute");
   const [editFields, setEditFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    api.get<string[]>("/explorer/vessels").then(setVessels).catch(() => {});
+  const loadTree = useCallback(async () => {
+    const { qs, env } = getEnvParams();
+    if (!env) return;
+    setLoading(true);
+    try {
+      const data = await api.get<ItemNode[]>(`/explorer/items/tree?${qs}`);
+      setAllItems(data);
+    } catch {
+      setAllItems([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    if (selectedVessel) {
-      api.get<ItemNode[]>(`/explorer/items/${encodeURIComponent(selectedVessel)}`).then(setItems).catch(() => {});
-    }
-  }, [selectedVessel]);
+  useEffect(() => { loadTree(); }, [loadTree]);
 
   const handleSelectItem = useCallback(async (itemId: string) => {
     setSelectedItemId(itemId);
     setSaveResult(null);
+    const { qs } = getEnvParams();
     try {
       const [attrs, subs, gens] = await Promise.all([
-        api.get<ItemAttribute[]>(`/explorer/items/${itemId}/attributes`),
-        api.get<SubAttribute[]>(`/explorer/items/${itemId}/subattributes`),
-        api.get<any[]>(`/explorer/items/${itemId}/generators`),
+        api.get<ItemAttribute[]>(`/explorer/items/${itemId}/attributes?${qs}`),
+        api.get<SubAttribute[]>(`/explorer/items/${itemId}/subattributes?${qs}`),
+        api.get<any[]>(`/explorer/items/${itemId}/generators?${qs}`),
       ]);
       setAttributes(attrs);
       setSubattributes(subs);
@@ -130,9 +150,7 @@ export default function ExplorerPage() {
     if (!editAttr || !selectedItemId) return;
     setSaving(true);
     setSaveResult(null);
-    const env = localStorage.getItem("lh_environment") || "";
-    const client = localStorage.getItem("lh_client_name") || "";
-    const qs = `environment=${encodeURIComponent(env)}&client_name=${encodeURIComponent(client)}`;
+    const { qs } = getEnvParams();
     try {
       await api.patch(`/explorer/items/${selectedItemId}/attribute-full?${qs}`, {
         attribute_id: editAttr.id_attribute,
@@ -153,29 +171,33 @@ export default function ExplorerPage() {
     }
   };
 
-  // Tree
-  const rootItems = items.filter((i) => !i.parent_id);
-  const getChildren = (parentId: string) => items.filter((i) => i.parent_id === parentId);
+  // Build tree structure from flat list
+  const rootItems = allItems.filter((i) => !i.parent_id);
+  const getChildren = (parentId: string) => allItems.filter((i) => i.parent_id === parentId);
 
-  const renderTree = (node: ItemNode) => (
-    <TreeItem
-      key={node.id}
-      itemId={node.id}
-      label={
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, py: 0.2 }}>
-          {getItemIcon(node)}
-          <Typography variant="body2" sx={{ fontSize: 12, color: getItemColor(node), fontWeight: node.id === selectedItemId ? 700 : 400 }}>
-            {node.name}
-          </Typography>
-        </Box>
-      }
-      onClick={() => handleSelectItem(node.id)}
-    >
-      {getChildren(node.id).map(renderTree)}
-    </TreeItem>
-  );
+  const selectedItem = allItems.find((i) => i.id === selectedItemId);
 
-  const selectedItem = items.find((i) => i.id === selectedItemId);
+  const renderTree = (node: ItemNode) => {
+    const style = getItemStyle(node);
+    const children = getChildren(node.id);
+    return (
+      <TreeItem
+        key={node.id}
+        itemId={node.id}
+        label={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, py: 0.2 }}>
+            {style.icon}
+            <Typography variant="body2" sx={{ fontSize: 12, color: style.color, fontWeight: node.id === selectedItemId ? 700 : 400 }}>
+              {node.name}
+            </Typography>
+          </Box>
+        }
+        onClick={() => handleSelectItem(node.id)}
+      >
+        {children.map(renderTree)}
+      </TreeItem>
+    );
+  };
 
   // Group by category
   const subsByParent: Record<string, SubAttribute[]> = {};
@@ -191,15 +213,13 @@ export default function ExplorerPage() {
     <AppLayout>
       <Box sx={{ display: "flex", gap: 2, height: "calc(100vh - 130px)" }}>
         {/* Árvore */}
-        <Card sx={{ width: 320, flexShrink: 0, overflow: "auto" }}>
+        <Card sx={{ width: 340, flexShrink: 0, overflow: "auto" }}>
           <CardContent sx={{ p: 1.5 }}>
-            <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
-              <InputLabel>Vessel</InputLabel>
-              <Select value={selectedVessel} label="Vessel" onChange={(e) => setSelectedVessel(e.target.value)}>
-                {vessels.map((v) => (<MenuItem key={v} value={v}>{v}</MenuItem>))}
-              </Select>
-            </FormControl>
-            <Box sx={{ display: "flex", gap: 1, mb: 1, flexWrap: "wrap" }}>
+            <Box sx={{ display: "flex", gap: 0.5, mb: 1, flexWrap: "wrap" }}>
+              <Chip icon={<OrgIcon sx={{ fontSize: 12 }} />} label="Org" size="small"
+                sx={{ bgcolor: `${COLORS.org}22`, color: COLORS.org, height: 20, fontSize: 10 }} />
+              <Chip icon={<BoatIcon sx={{ fontSize: 12 }} />} label="Navio" size="small"
+                sx={{ bgcolor: `${COLORS.vessel}22`, color: COLORS.vessel, height: 20, fontSize: 10 }} />
               <Chip icon={<FolderOpen sx={{ fontSize: 12 }} />} label="Sistema" size="small"
                 sx={{ bgcolor: `${COLORS.system}22`, color: COLORS.system, height: 20, fontSize: 10 }} />
               <Chip icon={<TreeIcon sx={{ fontSize: 12 }} />} label="Subsistema" size="small"
@@ -207,12 +227,17 @@ export default function ExplorerPage() {
               <Chip icon={<GearIcon sx={{ fontSize: 12 }} />} label="Equipamento" size="small"
                 sx={{ bgcolor: `${COLORS.equipment}22`, color: COLORS.equipment, height: 20, fontSize: 10 }} />
             </Box>
+            {loading && <LinearProgress sx={{ mb: 1 }} />}
             {rootItems.length > 0 ? (
-              <SimpleTreeView>{rootItems.map(renderTree)}</SimpleTreeView>
+              <SimpleTreeView>
+                {rootItems.map(renderTree)}
+              </SimpleTreeView>
             ) : (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: "center" }}>
-                {selectedVessel ? "Nenhum item encontrado." : "Seleciona um vessel."}
-              </Typography>
+              !loading && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: "center" }}>
+                  Nenhum item encontrado. Verifique o ambiente conectado.
+                </Typography>
+              )
             )}
           </CardContent>
         </Card>
@@ -222,7 +247,11 @@ export default function ExplorerPage() {
           {selectedItem ? (
             <>
               <Box sx={{ mb: 2 }}>
-                <Typography variant="h6">{selectedItem.name}</Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                  <Typography variant="h6">{selectedItem.name}</Typography>
+                  <Chip label={getItemStyle(selectedItem).label} size="small"
+                    sx={{ height: 20, fontSize: 10, bgcolor: `${getItemStyle(selectedItem).color}22`, color: getItemStyle(selectedItem).color }} />
+                </Box>
                 <Typography variant="body2" color="text.secondary">
                   Template: {selectedItem.template_name || "—"} · ID: {selectedItem.id.substring(0, 12)}...
                 </Typography>
@@ -360,11 +389,7 @@ export default function ExplorerPage() {
                 <ActionsTab
                   itemId={selectedItemId!}
                   itemName={selectedItem.name}
-                  vessel={selectedVessel}
-                  onRefresh={() => {
-                    api.get<ItemNode[]>(`/explorer/items/${encodeURIComponent(selectedVessel)}`).then(setItems).catch(() => {});
-                    handleSelectItem(selectedItemId!);
-                  }}
+                  onRefresh={() => { loadTree(); handleSelectItem(selectedItemId!); }}
                 />
               )}
             </>
@@ -384,7 +409,6 @@ export default function ExplorerPage() {
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
               {saving && <LinearProgress />}
 
-              {/* Read-only info */}
               <TextField size="small" label="Item" value={selectedItemId || ""} slotProps={{ input: { readOnly: true } }}
                 sx={{ "& .MuiInputBase-input": { color: "text.secondary" } }} />
               <TextField size="small" label="Atributo" value={editAttr.name_attribute} slotProps={{ input: { readOnly: true } }}
@@ -392,7 +416,6 @@ export default function ExplorerPage() {
               <TextField size="small" label="Tipo" value={editAttr.specification || ""} slotProps={{ input: { readOnly: true } }}
                 sx={{ "& .MuiInputBase-input": { color: "text.secondary" } }} />
 
-              {/* Editable fields */}
               <TextField size="small" label="Descrição"
                 value={editFields.description || ""}
                 onChange={(e) => setEditFields((f) => ({ ...f, description: e.target.value }))}
@@ -458,8 +481,7 @@ function ModelsTab({ generators, onStatusChanged }: {
     if (!ids.length) return;
     setLoading(true);
     setResult(null);
-    const env = localStorage.getItem("lh_environment") || "";
-    const client = localStorage.getItem("lh_client_name") || "";
+    const { env, client } = getEnvParams();
     try {
       const res = await api.post<{ success: number; error: number; errors: string[] }>("/models/status", {
         generator_ids: ids,
@@ -557,8 +579,8 @@ function ModelsTab({ generators, onStatusChanged }: {
 
 // ===================== Ações =====================
 
-function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
-  itemId: string; itemName: string; vessel: string; onRefresh: () => void;
+function ActionsTab({ itemId, itemName, onRefresh }: {
+  itemId: string; itemName: string; onRefresh: () => void;
 }) {
   const [result, setResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
@@ -569,7 +591,7 @@ function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
     if (!newName || newName === itemName) return;
     setRenaming(true);
     setResult(null);
-    const qs = `environment=${encodeURIComponent(localStorage.getItem("lh_environment") || "")}&client_name=${encodeURIComponent(localStorage.getItem("lh_client_name") || "")}`;
+    const { qs } = getEnvParams();
     try {
       await api.patch(`/explorer/items/${itemId}/rename?${qs}`, { name: newName });
       setResult({ type: "success", msg: `Renomeado para "${newName}".` });
@@ -587,8 +609,7 @@ function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const env = localStorage.getItem("lh_environment") || "";
-    const client = localStorage.getItem("lh_client_name") || "";
+    const { env, client } = getEnvParams();
     if (env && client) {
       api.get<Record<string, string>>(`/sync/templates/list?environment=${encodeURIComponent(env)}&client_name=${encodeURIComponent(client)}`)
         .then(setTemplates).catch(() => {});
@@ -599,11 +620,10 @@ function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
     if (!childName || !childTemplate) return;
     setCreating(true);
     setResult(null);
-    const env = localStorage.getItem("lh_environment") || "";
-    const client = localStorage.getItem("lh_client_name") || "";
+    const { env, client } = getEnvParams();
     try {
       await api.post("/explorer/items", {
-        vessel, name: childName, template_id: childTemplate,
+        name: childName, template_id: childTemplate,
         parent_id: itemId, environment: env, client_name: client,
       });
       setResult({ type: "success", msg: `Item "${childName}" criado.` });
@@ -621,7 +641,7 @@ function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
   const handleDelete = async () => {
     setConfirmDelete(false);
     setResult(null);
-    const qs = `environment=${encodeURIComponent(localStorage.getItem("lh_environment") || "")}&client_name=${encodeURIComponent(localStorage.getItem("lh_client_name") || "")}`;
+    const { qs } = getEnvParams();
     try {
       await api.delete(`/explorer/items/${itemId}?${qs}`);
       setResult({ type: "success", msg: "Item removido." });
@@ -675,7 +695,7 @@ function ActionsTab({ itemId, itemName, vessel, onRefresh }: {
             <DeleteIcon fontSize="small" /> Remover item
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Remove <strong>{itemName}</strong> permanentemente da API e do banco local.
+            Remove <strong>{itemName}</strong> permanentemente da API.
           </Typography>
           <Button variant="outlined" color="error" size="small" onClick={() => setConfirmDelete(true)}
             startIcon={<DeleteIcon />}>Remover</Button>

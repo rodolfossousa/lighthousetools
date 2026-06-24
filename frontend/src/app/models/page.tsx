@@ -31,7 +31,7 @@ export default function ModelsPage() {
   const [result, setResult] = useState<{ success: number; error: number; errors: string[] } | null>(null);
 
   useEffect(() => {
-    api.get<string[]>("/explorer/vessels").then(setVessels).catch(() => {});
+    api.get<string[]>("/models/vessels").then(setVessels).catch(() => {});
   }, []);
 
   const fetchGenerators = useCallback(async () => {
@@ -46,6 +46,9 @@ export default function ModelsPage() {
     fetchGenerators();
   }, [fetchGenerators]);
 
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+
   const handleExecute = async () => {
     const env = localStorage.getItem("lh_environment") || "";
     const client = localStorage.getItem("lh_client_name") || "";
@@ -53,14 +56,31 @@ export default function ModelsPage() {
     if (!ids.length) return;
     setLoading(true);
     setResult(null);
+    setProgress(0);
+    setProgressLabel("");
     try {
-      const res = await api.post<{ success: number; error: number; errors: string[] }>("/models/status", {
+      await api.postSSE("/models/status", {
         generator_ids: ids,
         status: newStatus,
         environment: env,
         client_name: client,
+      }, (ev) => {
+        if (ev.error) {
+          setResult({ success: 0, error: 1, errors: [ev.error as string] });
+          setLoading(false);
+          return;
+        }
+        if (ev.done) {
+          const r = ev as any;
+          setResult({ success: r.success || 0, error: r.error_count || 0, errors: r.errors || [] });
+          setLoading(false);
+          return;
+        }
+        if (ev.total && ev.current !== undefined) {
+          setProgress(Math.round((ev.current / ev.total) * 100));
+          setProgressLabel(`${ev.current}/${ev.total}`);
+        }
       });
-      setResult(res);
     } catch (e: any) {
       setResult({ success: 0, error: 1, errors: [e.message] });
     }
@@ -134,7 +154,15 @@ export default function ModelsPage() {
               Executar
             </Button>
           </CardContent>
-          {loading && <LinearProgress />}
+          {loading && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">{progressLabel || "Iniciando..."}</Typography>
+                <Typography variant="body2" color="text.secondary">{progress}%</Typography>
+              </Box>
+              <LinearProgress variant="determinate" value={progress} />
+            </Box>
+          )}
         </Card>
       )}
 

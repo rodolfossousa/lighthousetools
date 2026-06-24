@@ -11,7 +11,7 @@ echo Limpando cache do Next.js (.next)...
 if exist "%~dp0frontend\.next" rmdir /s /q "%~dp0frontend\.next"
 
 echo Iniciando Backend (FastAPI) na porta 8001...
-start "Backend - FastAPI" cmd /k "set PATH=C:\Program Files\nodejs;%LOCALAPPDATA%\Programs\Python\Python313;%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python311;%PATH% && cd /d %~dp0backend && python -m uvicorn main:app --reload --port 8001"
+start "Backend - FastAPI" cmd /k "cd /d %~dp0 && call .venv\Scripts\activate && cd backend && python -m uvicorn main:app --reload --port 8001"
 
 timeout /t 3 /nobreak > nul
 

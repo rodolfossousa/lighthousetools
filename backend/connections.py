@@ -26,6 +26,13 @@ def get_connection(user_id: int, environment: str, client_name: str) -> Lighthou
         return _store.get(key)
 
 
+def iter_user_connections(user_id: int):
+    """Retorna lista de (key, ws) para o utilizador."""
+    prefix = f"{user_id}:"
+    with _lock:
+        return [(k, ws) for k, ws in _store.items() if k.startswith(prefix)]
+
+
 def disconnect(user_id: int):
     with _lock:
         keys_to_remove = [k for k in _store if k.startswith(f"{user_id}:")]

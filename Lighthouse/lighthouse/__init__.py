@@ -17,6 +17,7 @@ import requests
 import copy
 import json
 import os
+import time
 from pathlib import Path
 from typing import List, Dict
 
@@ -30,14 +31,44 @@ class Lighthouse:
             "categories": {}
         }
 
+        # OAuth2 support
+        self._oauth2_config = kwargs.get("oauth2")
+        self._access_token = None
+        self._token_expires_at = 0
+
         if self.debug:
             print("Lighthouse initialized in DEBUG mode. No data will be posted, patched, deleted or put.")
+
+    def _fetch_oauth2_token(self):
+        cfg = self._oauth2_config
+        resp = requests.post(cfg["token_url"], data={
+            "grant_type": "client_credentials",
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
+            "scope": cfg["scope"],
+        }, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        resp.raise_for_status()
+        data = resp.json()
+        self._access_token = data["access_token"]
+        self._token_expires_at = time.time() + data.get("expires_in", 3600) - 60
+
+    def _auth_headers(self):
+        if self._oauth2_config:
+            if not self._access_token or time.time() >= self._token_expires_at:
+                self._fetch_oauth2_token()
+            return {
+                "content-type": "application/json",
+                "Authorization": f"Bearer {self._access_token}",
+            }
+        return {
+            "content-type": "application/json",
+            "X-Api-Key": self.api_key,
+        }
 
     def _get_cached(self, cache_name, cache_key):
         value = self._cache.get(cache_name, {}).get(cache_key)
         if value is None:
             return None
-        # Return a copy so callers cannot mutate internal cached state.
         return copy.deepcopy(value)
 
     def _set_cached(self, cache_name, cache_key, value):
@@ -48,7 +79,7 @@ class Lighthouse:
 
 
     def get(self, url, data=None):
-        headers = {'content-type': 'application/json', 'X-Api-Key': self.api_key}
+        headers = self._auth_headers()
         if data:
             result = requests.get(url, headers=headers, params=data)
         else:
@@ -59,36 +90,27 @@ class Lighthouse:
         """
         Método genérico para fazer requisições POST.
         """
-        headers = {
-            'content-type': 'application/json',
-            'X-Api-Key': self.api_key
-        }
         if self.debug:
-            # do not post, return valid response object
             return DummyResponse()
-        
-        response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=self._auth_headers(), json=data)
         return response
 
     def put(self, url, data):
         if self.debug:
-            # do not post, return valid response object
             return DummyResponse()
-        result = requests.put(url, headers={'content-type': 'application/json', 'X-Api-Key': self.api_key}, json=data)
+        result = requests.put(url, headers=self._auth_headers(), json=data)
         return result.json()
 
     def patch(self, url, data):
         if self.debug:
-            # do not post, return valid response object
             return DummyResponse()
-        result = requests.patch(url, headers={'content-type': 'application/json', 'X-Api-Key': self.api_key}, json=data)
+        result = requests.patch(url, headers=self._auth_headers(), json=data)
         return result
-    
+
     def delete(self, url, data):
         if self.debug:
-            # do not post, return valid response object
             return DummyResponse()
-        result = requests.delete(url, headers={'content-type': 'application/json', 'X-Api-Key': self.api_key}, json=data)
+        result = requests.delete(url, headers=self._auth_headers(), json=data)
         return result
 
 
@@ -731,11 +753,22 @@ def connect(client_name: str, environment: str, debug: bool) -> Lighthouse:
         client.get_items()
     """
     client_info = clients[environment][client_name]
+
+    oauth2 = None
+    if client_info.get("auth") == "oauth2":
+        oauth2 = {
+            "client_id": client_info["client_id"],
+            "client_secret": client_info["client_secret"],
+            "token_url": client_info["token_url"],
+            "scope": client_info["scope"],
+        }
+
     return Lighthouse(
-        api_key=client_info["api_key"],
+        api_key=client_info.get("api_key", ""),
         workspace_id=client_info["workspace_id"],
         url=client_info["url"],
-        debug=debug
+        debug=debug,
+        oauth2=oauth2,
     )
 
 class DummyResponse:

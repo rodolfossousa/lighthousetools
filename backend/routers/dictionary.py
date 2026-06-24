@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import io
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 
 from auth import get_current_user
@@ -318,4 +320,204 @@ async def enroll_project(
         "created": created,
         "updated": updated,
         "errors": errors,
+    }
+
+
+# --- Refresh (Atualizar do Workspace) ---
+
+class RefreshRequest(BaseModel):
+    environment: str
+    client_name: str
+
+
+@router.post("/projects/{project_id}/refresh")
+async def refresh_from_workspace(
+    project_id: str, body: RefreshRequest, user: dict = Depends(get_current_user),
+):
+    project = get_dd_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    if project.get("status") != "Cadastrado":
+        raise HTTPException(status_code=400, detail="Projeto ainda não foi cadastrado no Workspace.")
+
+    ws = _get_or_connect(user["id"], body.environment, body.client_name)
+
+    items = get_dd_items(project_id)
+    enrolled_items = [i for i in items if i.get("ws_item_id")]
+    if not enrolled_items:
+        raise HTTPException(status_code=400, detail="Nenhum item cadastrado no Workspace para atualizar.")
+
+    items_processed = 0
+    updated_attrs = 0
+    errors = []
+
+    for item in enrolled_items:
+        ws_item_id = item["ws_item_id"]
+        dd_item_id = item["id"]
+        try:
+            ws_response = ws.get_item_attributes(ws_item_id)
+            ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+
+            ws_attr_map = {}
+            ws_subattr_map = {}
+            for wa in ws_attrs:
+                ws_attr_map[wa["name"].strip().lower()] = wa
+                for sub in wa.get("sub_attributes", []):
+                    ws_subattr_map[(wa["name"].strip().lower(), sub["name"].strip().lower())] = sub
+
+            dd_attrs = get_dd_attributes(dd_item_id)
+            dd_subs = get_dd_subattributes(dd_item_id)
+            updates = []
+
+            for attr in dd_attrs:
+                key = attr["name"].strip().lower()
+                ws_attr = ws_attr_map.get(key)
+                if not ws_attr:
+                    continue
+                upd: dict = {"id": attr["id"]}
+                ws_ref = ws_attr.get("reference") or ""
+                if ws_ref != (attr.get("reference") or ""):
+                    upd["reference"] = ws_ref
+                ws_val = ws_attr.get("value")
+                ws_val_str = str(ws_val) if ws_val is not None else ""
+                if ws_val_str != (attr.get("value") or ""):
+                    upd["value"] = ws_val_str
+                ws_uom = ws_attr.get("unit_of_measurement") or ""
+                if ws_uom != (attr.get("unit_of_measurement") or ""):
+                    upd["unit_of_measurement"] = ws_uom
+                ws_dp = ws_attr.get("decimal_places")
+                if ws_dp is not None and int(ws_dp) != (attr.get("decimal_places") or 2):
+                    upd["decimal_places"] = int(ws_dp)
+                if len(upd) > 1:
+                    updates.append(upd)
+
+            for sub in dd_subs:
+                parent_name = (sub.get("parent_name") or "").strip().lower()
+                sub_name = sub["name"].strip().lower()
+                ws_sub = ws_subattr_map.get((parent_name, sub_name))
+                if not ws_sub:
+                    continue
+                upd = {"id": sub["id"]}
+                ws_val = ws_sub.get("value")
+                ws_val_str = str(ws_val) if ws_val is not None else ""
+                if ws_val_str != (sub.get("value") or ""):
+                    upd["value"] = ws_val_str
+                if len(upd) > 1:
+                    updates.append(upd)
+
+            if updates:
+                bulk_update_dd_attributes(updates)
+                updated_attrs += len(updates)
+            items_processed += 1
+        except Exception as e:
+            errors.append(f"{item['name']}: {e}")
+
+    return {
+        "message": f"Atualização concluída: {items_processed} item(ns), {updated_attrs} atributo(s) atualizado(s).",
+        "items_processed": items_processed,
+        "updated_attributes": updated_attrs,
+        "errors": errors,
+    }
+
+
+# --- Import Excel ---
+
+@router.post("/items/{item_id}/import-excel")
+async def import_excel(
+    item_id: str,
+    file: UploadFile = File(...),
+    _: dict = Depends(get_current_user),
+):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Ficheiro deve ser .xlsx ou .xls")
+
+    contents = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao ler ficheiro: {e}")
+
+    if "attribute_name" not in df.columns:
+        raise HTTPException(status_code=400, detail="Coluna 'attribute_name' não encontrada na planilha.")
+
+    df = df.replace({pd.NA: None, float("nan"): None})
+    df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+
+    has_sub_col = "subattribute_name" in df.columns
+
+    dd_attrs = get_dd_attributes(item_id)
+    dd_subs = get_dd_subattributes(item_id)
+
+    attr_map: dict[str, dict] = {}
+    for a in dd_attrs:
+        attr_map[a["name"].strip().lower()] = a
+
+    sub_map: dict[tuple[str, str], dict] = {}
+    for s in dd_subs:
+        parent_name = (s.get("parent_name") or "").strip().lower()
+        sub_name = s["name"].strip().lower()
+        sub_map[(parent_name, sub_name)] = s
+
+    updates = []
+    matched = 0
+    skipped = 0
+
+    for _, row in df.iterrows():
+        attr_name = row.get("attribute_name")
+        if not attr_name or not isinstance(attr_name, str):
+            skipped += 1
+            continue
+
+        sub_name = row.get("subattribute_name") if has_sub_col else None
+        is_sub = sub_name is not None and isinstance(sub_name, str) and sub_name.strip() != ""
+
+        if is_sub:
+            key = (attr_name.strip().lower(), sub_name.strip().lower())
+            dd_rec = sub_map.get(key)
+        else:
+            dd_rec = attr_map.get(attr_name.strip().lower())
+
+        if not dd_rec:
+            skipped += 1
+            continue
+
+        upd: dict = {"id": dd_rec["id"]}
+        changed = False
+
+        for excel_col, dd_field in [
+            ("reference", "reference"),
+            ("value", "value"),
+            ("unit_of_measurement", "unit_of_measurement"),
+        ]:
+            if excel_col in df.columns:
+                excel_val = row.get(excel_col)
+                if excel_val is not None:
+                    excel_str = str(excel_val).strip()
+                    if excel_str and excel_str != (dd_rec.get(dd_field) or ""):
+                        upd[dd_field] = excel_str
+                        changed = True
+
+        if "decimal_places" in df.columns:
+            dp = row.get("decimal_places")
+            if dp is not None:
+                try:
+                    dp_int = int(float(dp))
+                    if dp_int != (dd_rec.get("decimal_places") or 2):
+                        upd["decimal_places"] = dp_int
+                        changed = True
+                except (ValueError, TypeError):
+                    pass
+
+        if changed:
+            updates.append(upd)
+            matched += 1
+
+    if updates:
+        bulk_update_dd_attributes(updates)
+
+    return {
+        "message": f"Importação concluída: {matched} atributo(s) atualizado(s), {skipped} linha(s) sem correspondência.",
+        "updated": matched,
+        "skipped": skipped,
+        "total_rows": len(df),
     }

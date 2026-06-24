@@ -112,18 +112,29 @@ function SyncItemsSection() {
     setSearching(false);
   };
 
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+
   const handleSync = async () => {
     setLoading(true);
     setResult(null);
     setError("");
+    setProgress(0);
+    setProgressLabel("");
     try {
-      const res = await api.post<{ message: string }>("/sync/items", {
+      await api.postSSE("/sync/items", {
         root_id: selectedRoot,
         vessel_name: vesselName || searchTerm.toUpperCase(),
         environment: env,
         client_name: client,
+      }, (ev) => {
+        if (ev.error) { setError(ev.error); setLoading(false); return; }
+        if (ev.done) { setResult(ev.message || "Concluído"); setLoading(false); return; }
+        if (ev.total && ev.current !== undefined) {
+          setProgress(Math.round((ev.current / ev.total) * 100));
+          setProgressLabel(`${ev.current}/${ev.total} — ${ev.name || ""}`);
+        }
       });
-      setResult(res.message);
     } catch (e: any) {
       setError(e.message);
     }
@@ -174,7 +185,15 @@ function SyncItemsSection() {
           </Box>
         )}
 
-        {loading && <LinearProgress sx={{ mt: 1 }} />}
+        {loading && (
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">{progressLabel || "Iniciando..."}</Typography>
+              <Typography variant="body2" color="text.secondary">{progress}%</Typography>
+            </Box>
+            <LinearProgress variant="determinate" value={progress} />
+          </Box>
+        )}
         {result && <Alert severity="success" sx={{ mt: 2 }}>{result}</Alert>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       </CardContent>
@@ -204,17 +223,28 @@ function SyncTemplatesSection() {
     setLoadingList(false);
   };
 
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
+
   const handleSync = async () => {
     setLoading(true);
     setResult(null);
     setError("");
+    setProgress(0);
+    setProgressLabel("");
     try {
-      const res = await api.post<{ message: string }>("/sync/templates", {
+      await api.postSSE("/sync/templates", {
         environment: env,
         client_name: client,
         template_ids: selectedIds.length ? selectedIds : null,
+      }, (ev) => {
+        if (ev.error) { setError(ev.error); setLoading(false); return; }
+        if (ev.done) { setResult(ev.message || "Concluído"); setLoading(false); return; }
+        if (ev.total && ev.current !== undefined) {
+          setProgress(Math.round((ev.current / ev.total) * 100));
+          setProgressLabel(`${ev.current}/${ev.total} — ${ev.name || ""}`);
+        }
       });
-      setResult(res.message);
     } catch (e: any) {
       setError(e.message);
     }
@@ -255,7 +285,15 @@ function SyncTemplatesSection() {
           </Box>
         )}
 
-        {loading && <LinearProgress sx={{ mt: 1 }} />}
+        {loading && (
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">{progressLabel || "Iniciando..."}</Typography>
+              <Typography variant="body2" color="text.secondary">{progress}%</Typography>
+            </Box>
+            <LinearProgress variant="determinate" value={progress} />
+          </Box>
+        )}
         {result && <Alert severity="success" sx={{ mt: 2 }}>{result}</Alert>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       </CardContent>

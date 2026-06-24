@@ -43,6 +43,8 @@ import {
   AccountTree as TreeIcon,
   DriveFileRenameOutline as RenameIcon,
   CloudUpload as CloudUploadIcon,
+  Sync as SyncIcon,
+  UploadFile as UploadFileIcon,
 } from "@mui/icons-material";
 import { SimpleTreeView, TreeItem } from "@mui/x-tree-view";
 import AppLayout from "@/components/layout/AppLayout";
@@ -109,6 +111,7 @@ export default function DictionaryPage() {
   const [editingAttrs, setEditingAttrs] = useState<Record<number, Partial<DDAttribute>>>({});
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [saveResult, setSaveResult] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   const env = typeof window !== "undefined" ? localStorage.getItem("lh_environment") || "" : "";
@@ -422,8 +425,41 @@ export default function DictionaryPage() {
 
                   {/* Barra de edição */}
                   <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mb: 1 }}>
+                    <Button
+                      size="small"
+                      startIcon={<UploadFileIcon />}
+                      component="label"
+                      disabled={editing || importing}
+                    >
+                      {importing ? "Importando..." : "Importar Excel"}
+                      <input
+                        type="file"
+                        hidden
+                        accept=".xlsx,.xls"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file || !selectedItemId) return;
+                          setImporting(true);
+                          setSaveResult(null);
+                          try {
+                            const res = await api.upload<{ message: string; updated: number; skipped: number }>(
+                              `/dictionary/items/${selectedItemId}/import-excel`,
+                              file,
+                            );
+                            setSaveResult({ type: "success", msg: res.message });
+                            selectItem(selectedItemId);
+                          } catch (err: any) {
+                            setSaveResult({ type: "error", msg: err.message });
+                          } finally {
+                            setImporting(false);
+                            e.target.value = "";
+                          }
+                        }}
+                      />
+                    </Button>
                     {!editing ? (
-                      <Button size="small" startIcon={<EditIcon />} onClick={() => setEditing(true)}>
+                      <Button size="small" startIcon={<EditIcon />} onClick={() => setEditing(true)}
+                        disabled={importing}>
                         Editar
                       </Button>
                     ) : (
@@ -858,6 +894,7 @@ function EnrollSection({ project, summary, onProjectUpdated }: {
   const [wsParentId, setWsParentId] = useState(project.ws_parent_id || "");
   const [savingParent, setSavingParent] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [result, setResult] = useState<{ type: "success" | "error" | "warning"; msg: string } | null>(null);
 
@@ -884,7 +921,7 @@ function EnrollSection({ project, summary, onProjectUpdated }: {
     try {
       const res = await api.post<{
         message: string; created: number; updated: number; errors: string[];
-      }>(`/dictionary/projects/${project.id}/enroll`, { environment: env, client_name: client });
+      }>(`/dictionary/projects/${project.id}/enroll`, { environment: env, client_name: client }, 300000);
 
       if (res.errors && res.errors.length > 0) {
         setResult({
@@ -899,6 +936,32 @@ function EnrollSection({ project, summary, onProjectUpdated }: {
       setResult({ type: "error", msg: e.message });
     } finally {
       setEnrolling(false);
+      setProgress(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setResult(null);
+    setProgress("Atualizando do Workspace...");
+    try {
+      const res = await api.post<{
+        message: string; items_processed: number; updated_attributes: number; errors: string[];
+      }>(`/dictionary/projects/${project.id}/refresh`, { environment: env, client_name: client }, 300000);
+
+      if (res.errors && res.errors.length > 0) {
+        setResult({
+          type: "warning",
+          msg: `${res.message}\n\nErros:\n${res.errors.map((e) => `• ${e}`).join("\n")}`,
+        });
+      } else {
+        setResult({ type: "success", msg: res.message });
+      }
+      onProjectUpdated();
+    } catch (e: any) {
+      setResult({ type: "error", msg: e.message });
+    } finally {
+      setRefreshing(false);
       setProgress(null);
     }
   };
@@ -959,18 +1022,28 @@ function EnrollSection({ project, summary, onProjectUpdated }: {
 
             {hasItemsWithTemplate && (
               <>
-                {enrolling && <LinearProgress sx={{ mb: 1 }} />}
+                {(enrolling || refreshing) && <LinearProgress sx={{ mb: 1 }} />}
                 {progress && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: 12 }}>
                     {progress}
                   </Typography>
                 )}
-                <Button
-                  variant="contained" startIcon={<CloudUploadIcon />}
-                  onClick={handleEnroll} disabled={enrolling}
-                >
-                  {isAlreadyCadastrado ? "Atualizar no Workspace" : "Cadastrar no Workspace"}
-                </Button>
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  <Button
+                    variant="contained" startIcon={<CloudUploadIcon />}
+                    onClick={handleEnroll} disabled={enrolling || refreshing}
+                  >
+                    {isAlreadyCadastrado ? "Atualizar no Workspace" : "Cadastrar no Workspace"}
+                  </Button>
+                  {isAlreadyCadastrado && (
+                    <Button
+                      variant="outlined" startIcon={<SyncIcon />}
+                      onClick={handleRefresh} disabled={enrolling || refreshing}
+                    >
+                      Atualizar do Workspace
+                    </Button>
+                  )}
+                </Box>
               </>
             )}
           </>

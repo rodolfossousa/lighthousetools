@@ -19,7 +19,8 @@ export interface ItemNode {
   name: string;
   template_name: string;
   parent_id: string | null;
-  is_leaf: boolean;
+  has_children: boolean;
+  depth: number;
 }
 
 export interface ItemAttribute {
