@@ -219,7 +219,7 @@ async def update_attribute_full(
                 detail=getattr(response, "text", "Erro ao atualizar atributo TimeSeries na API."),
             )
 
-    if body.value is not None:
+    if body.value is not None and not is_ts:
         response = ws.update_manual_attributes(item_id, [{"id": body.attribute_id, "value": body.value}])
         if hasattr(response, "status_code") and response.status_code not in (200, 201, 204):
             raise HTTPException(
