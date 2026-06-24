@@ -1,7 +1,16 @@
 {
     "prod": {
-        "cliente": {
+        "cliente_api_key": {
             "api_key": "SUA_API_KEY_AQUI",
+            "workspace_id": "SEU_WORKSPACE_ID_AQUI",
+            "url": "https://jarvis.shapedigital.com/shapi"
+        },
+        "cliente_oauth2": {
+            "auth": "oauth2",
+            "client_id": "SEU_CLIENT_ID_AQUI",
+            "client_secret": "SEU_CLIENT_SECRET_AQUI",
+            "token_url": "https://SEU_TENANT.b2clogin.com/.../oauth2/v2.0/token",
+            "scope": "https://SEU_SCOPE/.default",
             "workspace_id": "SEU_WORKSPACE_ID_AQUI",
             "url": "https://jarvis.shapedigital.com/shapi"
         }
