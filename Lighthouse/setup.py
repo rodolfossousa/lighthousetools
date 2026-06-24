@@ -8,8 +8,7 @@ setup(
     author_email="breno.robazza@shapedigital.com",
     packages=find_packages(),
     install_requires=[
-        # Add your dependencies here, e.g.:
-        # "requests>=2.25.1",
+        "requests>=2.25.1",
     ],
     python_requires=">=3.7",
     include_package_data=True,
