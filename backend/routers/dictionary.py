@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from auth import get_current_user
 from connections import get_connection, connect_environment
 from db_lighthouse import (
+    _get_conn,
     get_dd_projects, get_dd_project, create_dd_project, update_dd_project, delete_dd_project,
     get_dd_items, get_dd_item, create_dd_item, rename_dd_item, delete_dd_item, set_dd_item_ws_id,
     get_dd_attributes, get_dd_subattributes, get_all_dd_attributes,
@@ -330,6 +331,66 @@ class RefreshRequest(BaseModel):
     client_name: str
 
 
+def _insert_dd_attrs_from_ws(dd_item_id: str, ws_attrs: list[dict]):
+    """Cria atributos no DD a partir dos atributos reais do workspace."""
+    conn = _get_conn()
+    conn.execute("DELETE FROM dd_attributes WHERE item_id = ?", (dd_item_id,))
+
+    parent_map = {}
+    root_attrs = [a for a in ws_attrs if not a.get("parent_id")]
+    sub_attrs = []
+    for a in ws_attrs:
+        for sub in a.get("sub_attributes") or []:
+            sub["_parent_ws_id"] = a["id"]
+            sub["_parent_name"] = a["name"]
+            sub_attrs.append(sub)
+
+    for i, attr in enumerate(root_attrs):
+        cats = attr.get("categories") or []
+        cat_str = cats[0]["name"] if cats else ""
+        ds = attr.get("data_source", "")
+        dt = attr.get("data_type", "")
+        cursor = conn.execute("""
+            INSERT INTO dd_attributes
+                (item_id, template_attribute_id, name, data_source, data_type,
+                 unit_of_measurement, decimal_places, categories, reference, value,
+                 parent_attribute_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        """, (
+            dd_item_id, attr.get("id", ""), attr["name"], ds, dt,
+            attr.get("unit_of_measurement") or "", attr.get("decimal_places") or 2,
+            cat_str, attr.get("reference") or "",
+            str(attr["value"]) if attr.get("value") is not None else "",
+            i,
+        ))
+        parent_map[attr["id"]] = cursor.lastrowid
+
+    for j, sub in enumerate(sub_attrs):
+        parent_dd_id = parent_map.get(sub.get("_parent_ws_id"))
+        if parent_dd_id is None:
+            continue
+        cats = sub.get("categories") or []
+        cat_str = cats[0]["name"] if cats else ""
+        ds = sub.get("data_source", "")
+        dt = sub.get("data_type", "")
+        conn.execute("""
+            INSERT INTO dd_attributes
+                (item_id, template_attribute_id, name, data_source, data_type,
+                 unit_of_measurement, decimal_places, categories, reference, value,
+                 parent_attribute_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            dd_item_id, sub.get("id", ""), sub["name"], ds, dt,
+            sub.get("unit_of_measurement") or "", sub.get("decimal_places") or 2,
+            cat_str, sub.get("reference") or "",
+            str(sub["value"]) if sub.get("value") is not None else "",
+            parent_dd_id, j,
+        ))
+
+    conn.commit()
+    conn.close()
+
+
 @router.post("/projects/{project_id}/refresh")
 async def refresh_from_workspace(
     project_id: str, body: RefreshRequest, user: dict = Depends(get_current_user),
@@ -347,9 +408,100 @@ async def refresh_from_workspace(
     if not enrolled_items:
         raise HTTPException(status_code=400, detail="Nenhum item cadastrado no Workspace para atualizar.")
 
+    known_ws_ids = {i["ws_item_id"] for i in items if i.get("ws_item_id")}
+    dd_by_ws_id = {i["ws_item_id"]: i for i in items if i.get("ws_item_id")}
+
     items_processed = 0
     updated_attrs = 0
+    new_items = 0
     errors = []
+
+    def _update_existing_attrs(dd_item_id: str, ws_attrs: list[dict]):
+        nonlocal updated_attrs
+        ws_attr_map = {}
+        ws_subattr_map = {}
+        for wa in ws_attrs:
+            ws_attr_map[wa["name"].strip().lower()] = wa
+            for sub in wa.get("sub_attributes", []):
+                ws_subattr_map[(wa["name"].strip().lower(), sub["name"].strip().lower())] = sub
+
+        dd_attrs = get_dd_attributes(dd_item_id)
+        dd_subs = get_dd_subattributes(dd_item_id)
+        updates = []
+
+        for attr in dd_attrs:
+            key = attr["name"].strip().lower()
+            ws_attr = ws_attr_map.get(key)
+            if not ws_attr:
+                continue
+            upd: dict = {"id": attr["id"]}
+            ws_ref = ws_attr.get("reference") or ""
+            if ws_ref != (attr.get("reference") or ""):
+                upd["reference"] = ws_ref
+            ws_val = ws_attr.get("value")
+            ws_val_str = str(ws_val) if ws_val is not None else ""
+            if ws_val_str != (attr.get("value") or ""):
+                upd["value"] = ws_val_str
+            ws_uom = ws_attr.get("unit_of_measurement") or ""
+            if ws_uom != (attr.get("unit_of_measurement") or ""):
+                upd["unit_of_measurement"] = ws_uom
+            ws_dp = ws_attr.get("decimal_places")
+            if ws_dp is not None and int(ws_dp) != (attr.get("decimal_places") or 2):
+                upd["decimal_places"] = int(ws_dp)
+            if len(upd) > 1:
+                updates.append(upd)
+
+        for sub in dd_subs:
+            parent_name = (sub.get("parent_name") or "").strip().lower()
+            sub_name = sub["name"].strip().lower()
+            ws_sub = ws_subattr_map.get((parent_name, sub_name))
+            if not ws_sub:
+                continue
+            upd = {"id": sub["id"]}
+            ws_val = ws_sub.get("value")
+            ws_val_str = str(ws_val) if ws_val is not None else ""
+            if ws_val_str != (sub.get("value") or ""):
+                upd["value"] = ws_val_str
+            if len(upd) > 1:
+                updates.append(upd)
+
+        if updates:
+            bulk_update_dd_attributes(updates)
+            updated_attrs += len(updates)
+
+    def _discover_children(ws_parent_id: str, dd_parent_id: str):
+        nonlocal new_items
+        try:
+            response = ws.get_subitems(ws_parent_id, traverse=False)
+            subitems = response.get("subitems", []) if isinstance(response, dict) else []
+        except Exception:
+            return
+
+        for child in subitems:
+            child_ws_id = child["id"]
+            if child_ws_id in known_ws_ids:
+                continue
+
+            template = child.get("template") or {}
+            template_id = template.get("id") or ""
+            template_name = template.get("name") or ""
+
+            dd_item_id = create_dd_item(
+                project_id, child["name"], template_id, template_name, dd_parent_id,
+            )
+            set_dd_item_ws_id(dd_item_id, child_ws_id)
+            known_ws_ids.add(child_ws_id)
+
+            try:
+                ws_response = ws.get_item_attributes(child_ws_id)
+                ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+                if ws_attrs:
+                    _insert_dd_attrs_from_ws(dd_item_id, ws_attrs)
+            except Exception:
+                pass
+
+            new_items += 1
+            _discover_children(child_ws_id, dd_item_id)
 
     for item in enrolled_items:
         ws_item_id = item["ws_item_id"]
@@ -357,65 +509,26 @@ async def refresh_from_workspace(
         try:
             ws_response = ws.get_item_attributes(ws_item_id)
             ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
-
-            ws_attr_map = {}
-            ws_subattr_map = {}
-            for wa in ws_attrs:
-                ws_attr_map[wa["name"].strip().lower()] = wa
-                for sub in wa.get("sub_attributes", []):
-                    ws_subattr_map[(wa["name"].strip().lower(), sub["name"].strip().lower())] = sub
-
-            dd_attrs = get_dd_attributes(dd_item_id)
-            dd_subs = get_dd_subattributes(dd_item_id)
-            updates = []
-
-            for attr in dd_attrs:
-                key = attr["name"].strip().lower()
-                ws_attr = ws_attr_map.get(key)
-                if not ws_attr:
-                    continue
-                upd: dict = {"id": attr["id"]}
-                ws_ref = ws_attr.get("reference") or ""
-                if ws_ref != (attr.get("reference") or ""):
-                    upd["reference"] = ws_ref
-                ws_val = ws_attr.get("value")
-                ws_val_str = str(ws_val) if ws_val is not None else ""
-                if ws_val_str != (attr.get("value") or ""):
-                    upd["value"] = ws_val_str
-                ws_uom = ws_attr.get("unit_of_measurement") or ""
-                if ws_uom != (attr.get("unit_of_measurement") or ""):
-                    upd["unit_of_measurement"] = ws_uom
-                ws_dp = ws_attr.get("decimal_places")
-                if ws_dp is not None and int(ws_dp) != (attr.get("decimal_places") or 2):
-                    upd["decimal_places"] = int(ws_dp)
-                if len(upd) > 1:
-                    updates.append(upd)
-
-            for sub in dd_subs:
-                parent_name = (sub.get("parent_name") or "").strip().lower()
-                sub_name = sub["name"].strip().lower()
-                ws_sub = ws_subattr_map.get((parent_name, sub_name))
-                if not ws_sub:
-                    continue
-                upd = {"id": sub["id"]}
-                ws_val = ws_sub.get("value")
-                ws_val_str = str(ws_val) if ws_val is not None else ""
-                if ws_val_str != (sub.get("value") or ""):
-                    upd["value"] = ws_val_str
-                if len(upd) > 1:
-                    updates.append(upd)
-
-            if updates:
-                bulk_update_dd_attributes(updates)
-                updated_attrs += len(updates)
+            _update_existing_attrs(dd_item_id, ws_attrs)
             items_processed += 1
         except Exception as e:
             errors.append(f"{item['name']}: {e}")
 
+        _discover_children(ws_item_id, dd_item_id)
+
+    parts = []
+    if items_processed:
+        parts.append(f"{items_processed} item(ns) atualizado(s)")
+    if updated_attrs:
+        parts.append(f"{updated_attrs} atributo(s) alterado(s)")
+    if new_items:
+        parts.append(f"{new_items} item(ns) novo(s) descoberto(s)")
+
     return {
-        "message": f"Atualização concluída: {items_processed} item(ns), {updated_attrs} atributo(s) atualizado(s).",
+        "message": f"Atualização concluída: {', '.join(parts)}." if parts else "Nenhuma alteração.",
         "items_processed": items_processed,
         "updated_attributes": updated_attrs,
+        "new_items": new_items,
         "errors": errors,
     }
 
