@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import io
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 from auth import get_current_user
@@ -210,6 +212,197 @@ async def execute_copy(body: CopyExecuteRequest, user: dict = Depends(get_curren
         "message": f"{created} template(s) copiado(s) com sucesso.",
         "created": created,
         "errors": errors,
+    }
+
+
+@router.post("/import-excel")
+async def import_excel_template(
+    file: UploadFile = File(...),
+    template_name: str = Form(...),
+    description: str = Form(""),
+    environment: str = Form(...),
+    client_name: str = Form(...),
+    user: dict = Depends(get_current_user),
+):
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Ficheiro deve ser .xlsx ou .xls")
+
+    ws = _get_or_connect(user["id"], environment, client_name)
+
+    contents = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao ler ficheiro: {e}")
+
+    df.columns = df.columns.str.strip().str.lower()
+
+    if "name" not in df.columns:
+        raise HTTPException(status_code=400, detail="Coluna 'name' não encontrada na planilha.")
+
+    df = df.replace({pd.NA: None, float("nan"): None})
+    df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+
+    def _clean(val) -> str:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return ""
+        s = str(val).strip()
+        return "" if s.lower() == "nan" else s
+
+    type_to_source = {
+        "manual text":          ("Manual", "String"),
+        "manual string":        ("Manual", "String"),
+        "manual float":         ("Manual", "Float"),
+        "manual integer":       ("Manual", "Int"),
+        "manual int":           ("Manual", "Int"),
+        "manual boolean":       ("Manual", "Boolean"),
+        "timeseries float":     ("TimeSeries", "Float"),
+        "timeseries integer":   ("TimeSeries", "Int"),
+        "timeseries int":       ("TimeSeries", "Int"),
+        "timeseries text":      ("TimeSeries", "String"),
+        "timeseries string":    ("TimeSeries", "String"),
+        "timeseries_float":     ("TimeSeries", "Float"),
+        "timeseries_integer":   ("TimeSeries", "Int"),
+        "timeseries_text":      ("TimeSeries", "String"),
+        "time series float":    ("TimeSeries", "Float"),
+        "time series integer":  ("TimeSeries", "Int"),
+        "time series text":     ("TimeSeries", "String"),
+        "time series":          ("TimeSeries", "Float"),
+        "relational text":      ("Relational", "String"),
+        "relational_text":      ("Relational", "String"),
+    }
+
+    source_to_type = {
+        ("Manual", "String"):    "Manual Text",
+        ("Manual", "Float"):     "Manual Float",
+        ("Manual", "Int"):       "Manual Integer",
+        ("Manual", "Boolean"):   "Manual Boolean",
+        ("TimeSeries", "Float"): "Time Series Float",
+        ("TimeSeries", "Int"):   "Time Series Integer",
+        ("TimeSeries", "String"): "Time Series Text",
+        ("Relational", "String"): "Relational Text",
+    }
+
+    cat_name_to_id = {}
+    try:
+        cats_raw = ws.get_categories()
+        if isinstance(cats_raw, list):
+            for cat in cats_raw:
+                if isinstance(cat, dict):
+                    cat_name_to_id[cat["name"].strip().lower()] = cat["id"]
+    except Exception:
+        pass
+
+    has_parent_col = "parent" in df.columns
+
+    root_attrs = []
+    sub_attrs = []
+
+    for _, row in df.iterrows():
+        attr_name = row.get("name")
+        if not attr_name or not isinstance(attr_name, str):
+            continue
+
+        raw_type = _clean(row.get("type")) or "Manual Text"
+        source_pair = type_to_source.get(raw_type.lower().replace("_", " "), ("Manual", "String"))
+        data_source, data_type = source_pair
+
+        entry: dict = {
+            "name": attr_name,
+            "description": _clean(row.get("description")),
+            "data_source": data_source,
+            "attribute_data_source": data_source,
+            "value_type": data_type,
+            "attribute_value_type": data_type,
+            "unit_of_measurement": _clean(row.get("unit_of_measurement")) or _clean(row.get("unit")),
+            "decimal_places": 0,
+            "default_value": "",
+        }
+
+        dp = row.get("decimal_places")
+        if dp is not None:
+            try:
+                entry["decimal_places"] = int(float(dp))
+            except (ValueError, TypeError):
+                pass
+
+        dv = row.get("default_value")
+        dv_clean = _clean(dv)
+        if dv_clean:
+            entry["default_value"] = dv_clean
+
+        cat_val = row.get("category")
+        if cat_val and isinstance(cat_val, str):
+            cat_id = cat_name_to_id.get(cat_val.strip().lower())
+            if cat_id:
+                entry["categories"] = [cat_id]
+
+        parent_val = _clean(row.get("parent")) if has_parent_col else ""
+        if parent_val:
+            entry["_parent_name"] = parent_val
+            entry["_type_str"] = source_to_type.get((data_source, data_type), "Manual Text")
+            sub_attrs.append(entry)
+        else:
+            root_attrs.append(entry)
+
+    if not root_attrs and not sub_attrs:
+        raise HTTPException(status_code=400, detail="Nenhum atributo válido encontrado na planilha.")
+
+    payload = {
+        "name": template_name,
+        "description": description,
+        "attributes": root_attrs,
+    }
+
+    response = ws.post_template(payload)
+    if not (hasattr(response, "status_code") and response.status_code in (200, 201)):
+        status = getattr(response, "status_code", "?")
+        text = getattr(response, "text", str(response))
+        raise HTTPException(status_code=502, detail=f"Erro ao criar template: HTTP {status} — {text}")
+
+    new_template = response.json()
+    new_template_id = new_template.get("id", "")
+
+    sub_created = 0
+    sub_errors = []
+
+    if sub_attrs and new_template_id:
+        new_attrs_resp = ws.get_template_attributes(new_template_id)
+        new_attrs = new_attrs_resp.get("attributes", []) if isinstance(new_attrs_resp, dict) else []
+        name_to_id = {a["name"].strip().lower(): a["id"] for a in new_attrs}
+
+        for sub in sub_attrs:
+            parent_name = sub.pop("_parent_name", "")
+            type_str = sub.pop("_type_str", "Manual Text")
+            parent_id = name_to_id.get(parent_name.lower())
+            if not parent_id:
+                sub_errors.append(f"Pai '{parent_name}' não encontrado para subatributo '{sub['name']}'")
+                continue
+            sub_payload = {
+                "name": sub["name"],
+                "description": sub.get("description", ""),
+                "type": type_str,
+                "unit_of_measurement": sub.get("unit_of_measurement", ""),
+                "decimal_places": sub.get("decimal_places", 0),
+                "default_value": sub.get("default_value", ""),
+                "parent_id": parent_id,
+            }
+            if "categories" in sub:
+                sub_payload["categories"] = sub["categories"]
+            try:
+                ws.post_template_attribute(new_template_id, sub_payload)
+                sub_created += 1
+            except Exception as e:
+                sub_errors.append(f"{sub['name']}: {e}")
+
+    total = len(root_attrs) + sub_created
+
+    return {
+        "message": f"Template '{template_name}' criado com {total} atributo(s).",
+        "template_id": new_template_id,
+        "root_attributes": len(root_attrs),
+        "sub_attributes": sub_created,
+        "sub_errors": sub_errors,
     }
 
 

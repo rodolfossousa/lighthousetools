@@ -37,6 +37,7 @@ import {
   Search as AnalyzeIcon,
   ContentCopy as CopyIcon,
   Warning as WarningIcon,
+  UploadFile as UploadFileIcon,
 } from "@mui/icons-material";
 import AppLayout from "@/components/layout/AppLayout";
 import { api } from "@/lib/api";
@@ -77,13 +78,16 @@ export default function TemplatesPage() {
 }
 
 function CreateTemplateSection() {
+  const [mode, setMode] = useState<"manual" | "excel">("manual");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [attributes, setAttributes] = useState<AttributeRow[]>([
     { name: "", type: "Manual Text", unit: "", decimal_places: 2, default_value: "", description: "" },
   ]);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [subErrors, setSubErrors] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const env = typeof window !== "undefined" ? localStorage.getItem("lh_environment") || "" : "";
@@ -107,6 +111,7 @@ function CreateTemplateSection() {
     setLoading(true);
     setResult(null);
     setError("");
+    setSubErrors([]);
     try {
       const apiAttrs = attributes
         .filter((a) => a.name)
@@ -135,6 +140,38 @@ function CreateTemplateSection() {
     setLoading(false);
   };
 
+  const handleExcelUpload = async () => {
+    if (!excelFile || !name) return;
+    setLoading(true);
+    setResult(null);
+    setError("");
+    setSubErrors([]);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const formData = new FormData();
+      formData.append("file", excelFile);
+      formData.append("template_name", name);
+      formData.append("description", description);
+      formData.append("environment", env);
+      formData.append("client_name", client);
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("http://localhost:8001/api/templates/import-excel", {
+        method: "POST", headers, body: formData,
+      });
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      if (!res.ok) throw new Error(body.detail || `Erro ${res.status}`);
+      setResult(body.message);
+      if (body.sub_errors?.length) setSubErrors(body.sub_errors);
+      setName("");
+      setDescription("");
+      setExcelFile(null);
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setLoading(false);
+  };
+
   return (
     <Box>
       <Card sx={{ mb: 3 }}>
@@ -156,105 +193,167 @@ function CreateTemplateSection() {
               sx={{ flex: 1 }}
             />
           </Box>
-        </CardContent>
-      </Card>
-
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-            <Typography variant="h6">Atributos ({attributes.length})</Typography>
-            <Button size="small" startIcon={<AddIcon />} onClick={addRow}>
-              Adicionar
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              size="small"
+              variant={mode === "manual" ? "contained" : "outlined"}
+              onClick={() => setMode("manual")}
+            >
+              Manual
+            </Button>
+            <Button
+              size="small"
+              variant={mode === "excel" ? "contained" : "outlined"}
+              startIcon={<UploadFileIcon />}
+              onClick={() => setMode("excel")}
+            >
+              Importar Excel
             </Button>
           </Box>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Nome</TableCell>
-                  <TableCell>Tipo</TableCell>
-                  <TableCell>Unidade</TableCell>
-                  <TableCell>Decimais</TableCell>
-                  <TableCell>Valor padrão</TableCell>
-                  <TableCell>Descrição</TableCell>
-                  <TableCell width={50}></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {attributes.map((attr, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        value={attr.name}
-                        onChange={(e) => updateRow(idx, "name", e.target.value)}
-                        placeholder="Nome do atributo"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <FormControl size="small" variant="standard" sx={{ minWidth: 130 }}>
-                        <Select value={attr.type} onChange={(e) => updateRow(idx, "type", e.target.value)}>
-                          {ATTR_TYPES.map((t) => (
-                            <MenuItem key={t} value={t}>{t}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        value={attr.unit}
-                        onChange={(e) => updateRow(idx, "unit", e.target.value)}
-                        sx={{ width: 80 }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        type="number"
-                        value={attr.decimal_places}
-                        onChange={(e) => updateRow(idx, "decimal_places", Number(e.target.value))}
-                        sx={{ width: 60 }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        value={attr.default_value}
-                        onChange={(e) => updateRow(idx, "default_value", e.target.value)}
-                        sx={{ width: 100 }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        value={attr.description}
-                        onChange={(e) => updateRow(idx, "description", e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <IconButton size="small" onClick={() => removeRow(idx)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
         </CardContent>
       </Card>
 
-      <Button variant="contained" onClick={handleCreate} disabled={loading || !name}>
-        {loading ? "Criando..." : "Criar Template"}
-      </Button>
+      {mode === "excel" ? (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2 }}>Upload de Planilha</Typography>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 2 }}>
+              <Button variant="outlined" component="label">
+                Selecionar arquivo
+                <input
+                  type="file"
+                  hidden
+                  accept=".xlsx,.xls"
+                  onChange={(e) => setExcelFile(e.target.files?.[0] || null)}
+                />
+              </Button>
+              <Typography variant="body2" color="text.secondary">
+                {excelFile ? excelFile.name : "Nenhum arquivo selecionado"}
+              </Typography>
+            </Box>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Colunas esperadas: <strong>name</strong>, <strong>type</strong> (Manual Text, Manual Float, TimeSeries Float, ...),{" "}
+              <strong>unit_of_measurement</strong>, <strong>decimal_places</strong>, <strong>default_value</strong>,{" "}
+              <strong>description</strong>, <strong>category</strong>.
+              Para subatributos, adicione a coluna <strong>parent</strong> com o nome do atributo pai.
+            </Alert>
+            <Button
+              variant="contained"
+              onClick={handleExcelUpload}
+              disabled={loading || !name || !excelFile}
+            >
+              {loading ? "Criando..." : "Criar Template via Excel"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+              <Typography variant="h6">Atributos ({attributes.length})</Typography>
+              <Button size="small" startIcon={<AddIcon />} onClick={addRow}>
+                Adicionar
+              </Button>
+            </Box>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Nome</TableCell>
+                    <TableCell>Tipo</TableCell>
+                    <TableCell>Unidade</TableCell>
+                    <TableCell>Decimais</TableCell>
+                    <TableCell>Valor padrão</TableCell>
+                    <TableCell>Descrição</TableCell>
+                    <TableCell width={50}></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {attributes.map((attr, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          value={attr.name}
+                          onChange={(e) => updateRow(idx, "name", e.target.value)}
+                          placeholder="Nome do atributo"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <FormControl size="small" variant="standard" sx={{ minWidth: 130 }}>
+                          <Select value={attr.type} onChange={(e) => updateRow(idx, "type", e.target.value)}>
+                            {ATTR_TYPES.map((t) => (
+                              <MenuItem key={t} value={t}>{t}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          value={attr.unit}
+                          onChange={(e) => updateRow(idx, "unit", e.target.value)}
+                          sx={{ width: 80 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          type="number"
+                          value={attr.decimal_places}
+                          onChange={(e) => updateRow(idx, "decimal_places", Number(e.target.value))}
+                          sx={{ width: 60 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          value={attr.default_value}
+                          onChange={(e) => updateRow(idx, "default_value", e.target.value)}
+                          sx={{ width: 100 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          value={attr.description}
+                          onChange={(e) => updateRow(idx, "description", e.target.value)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <IconButton size="small" onClick={() => removeRow(idx)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {mode === "manual" && (
+        <Button variant="contained" onClick={handleCreate} disabled={loading || !name}>
+          {loading ? "Criando..." : "Criar Template"}
+        </Button>
+      )}
       {loading && <LinearProgress sx={{ mt: 1 }} />}
       {result && <Alert severity="success" sx={{ mt: 2 }}>{result}</Alert>}
+      {subErrors.length > 0 && (
+        <Alert severity="warning" sx={{ mt: 2 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>Erros em subatributos:</Typography>
+          {subErrors.map((e, i) => (
+            <Typography key={i} variant="body2">• {e}</Typography>
+          ))}
+        </Alert>
+      )}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
     </Box>
   );

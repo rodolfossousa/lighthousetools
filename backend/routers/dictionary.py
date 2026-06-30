@@ -414,6 +414,7 @@ async def refresh_from_workspace(
     items_processed = 0
     updated_attrs = 0
     new_items = 0
+    linked_items = 0
     errors = []
 
     def _update_existing_attrs(dd_item_id: str, ws_attrs: list[dict]):
@@ -469,39 +470,64 @@ async def refresh_from_workspace(
             bulk_update_dd_attributes(updates)
             updated_attrs += len(updates)
 
+    dd_children_by_parent: dict[str | None, dict[str, dict]] = {}
+    for it in items:
+        parent = it.get("parent_item_id")
+        dd_children_by_parent.setdefault(parent, {})[it["name"].strip().lower()] = it
+
     def _discover_children(ws_parent_id: str, dd_parent_id: str):
-        nonlocal new_items
+        nonlocal new_items, updated_attrs, linked_items
         try:
             response = ws.get_subitems(ws_parent_id, traverse=False)
             subitems = response.get("subitems", []) if isinstance(response, dict) else []
         except Exception:
             return
 
+        name_map = dd_children_by_parent.get(dd_parent_id, {})
+
         for child in subitems:
             child_ws_id = child["id"]
             if child_ws_id in known_ws_ids:
                 continue
 
-            template = child.get("template") or {}
-            template_id = template.get("id") or ""
-            template_name = template.get("name") or ""
+            child_name_key = child["name"].strip().lower()
+            existing_dd = name_map.get(child_name_key)
 
-            dd_item_id = create_dd_item(
-                project_id, child["name"], template_id, template_name, dd_parent_id,
-            )
-            set_dd_item_ws_id(dd_item_id, child_ws_id)
-            known_ws_ids.add(child_ws_id)
+            if existing_dd and not existing_dd.get("ws_item_id"):
+                set_dd_item_ws_id(existing_dd["id"], child_ws_id)
+                existing_dd["ws_item_id"] = child_ws_id
+                known_ws_ids.add(child_ws_id)
+                linked_items += 1
+                try:
+                    ws_response = ws.get_item_attributes(child_ws_id)
+                    ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+                    _update_existing_attrs(existing_dd["id"], ws_attrs)
+                except Exception:
+                    pass
+                _discover_children(child_ws_id, existing_dd["id"])
+            elif existing_dd:
+                continue
+            else:
+                template = child.get("template") or {}
+                template_id = template.get("id") or ""
+                template_name = template.get("name") or ""
 
-            try:
-                ws_response = ws.get_item_attributes(child_ws_id)
-                ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
-                if ws_attrs:
-                    _insert_dd_attrs_from_ws(dd_item_id, ws_attrs)
-            except Exception:
-                pass
+                dd_item_id = create_dd_item(
+                    project_id, child["name"], template_id, template_name, dd_parent_id,
+                )
+                set_dd_item_ws_id(dd_item_id, child_ws_id)
+                known_ws_ids.add(child_ws_id)
 
-            new_items += 1
-            _discover_children(child_ws_id, dd_item_id)
+                try:
+                    ws_response = ws.get_item_attributes(child_ws_id)
+                    ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+                    if ws_attrs:
+                        _insert_dd_attrs_from_ws(dd_item_id, ws_attrs)
+                except Exception:
+                    pass
+
+                new_items += 1
+                _discover_children(child_ws_id, dd_item_id)
 
     for item in enrolled_items:
         ws_item_id = item["ws_item_id"]
@@ -521,6 +547,8 @@ async def refresh_from_workspace(
         parts.append(f"{items_processed} item(ns) atualizado(s)")
     if updated_attrs:
         parts.append(f"{updated_attrs} atributo(s) alterado(s)")
+    if linked_items:
+        parts.append(f"{linked_items} item(ns) vinculado(s) ao workspace")
     if new_items:
         parts.append(f"{new_items} item(ns) novo(s) descoberto(s)")
 
@@ -528,6 +556,7 @@ async def refresh_from_workspace(
         "message": f"Atualização concluída: {', '.join(parts)}." if parts else "Nenhuma alteração.",
         "items_processed": items_processed,
         "updated_attributes": updated_attrs,
+        "linked_items": linked_items,
         "new_items": new_items,
         "errors": errors,
     }
