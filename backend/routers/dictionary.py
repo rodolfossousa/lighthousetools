@@ -223,7 +223,7 @@ async def enroll_project(
 
     def update_item_attributes(ws_item_id: str, dd_item_id: str):
         ws_attrs_response = ws.get_item_attributes(ws_item_id)
-        ws_attrs = ws_attrs_response.get("attributes", []) if isinstance(ws_attrs_response, dict) else []
+        ws_attrs = ws_attrs_response if isinstance(ws_attrs_response, list) else ws_attrs_response.get("attributes", []) if isinstance(ws_attrs_response, dict) else []
 
         ws_attr_map = {}
         ws_subattr_map = {}
@@ -415,6 +415,7 @@ async def refresh_from_workspace(
     updated_attrs = 0
     new_items = 0
     linked_items = 0
+    removed_items = 0
     errors = []
 
     def _update_existing_attrs(dd_item_id: str, ws_attrs: list[dict]):
@@ -500,7 +501,7 @@ async def refresh_from_workspace(
                 linked_items += 1
                 try:
                     ws_response = ws.get_item_attributes(child_ws_id)
-                    ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+                    ws_attrs = ws_response if isinstance(ws_response, list) else ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
                     _update_existing_attrs(existing_dd["id"], ws_attrs)
                 except Exception:
                     pass
@@ -520,7 +521,7 @@ async def refresh_from_workspace(
 
                 try:
                     ws_response = ws.get_item_attributes(child_ws_id)
-                    ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+                    ws_attrs = ws_response if isinstance(ws_response, list) else ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
                     if ws_attrs:
                         _insert_dd_attrs_from_ws(dd_item_id, ws_attrs)
                 except Exception:
@@ -529,17 +530,35 @@ async def refresh_from_workspace(
                 new_items += 1
                 _discover_children(child_ws_id, dd_item_id)
 
+    def _remove_deleted_children(ws_parent_id: str, dd_parent_id: str):
+        nonlocal removed_items
+        try:
+            response = ws.get_subitems(ws_parent_id, traverse=False)
+            subitems = response.get("subitems", []) if isinstance(response, dict) else []
+        except Exception:
+            return
+        ws_child_ids = {child["id"] for child in subitems}
+        dd_children = [i for i in items if i.get("parent_item_id") == dd_parent_id]
+        for dd_child in dd_children:
+            child_ws_id = dd_child.get("ws_item_id")
+            if child_ws_id and child_ws_id not in ws_child_ids:
+                delete_dd_item(dd_child["id"])
+                removed_items += 1
+            elif child_ws_id:
+                _remove_deleted_children(child_ws_id, dd_child["id"])
+
     for item in enrolled_items:
         ws_item_id = item["ws_item_id"]
         dd_item_id = item["id"]
         try:
             ws_response = ws.get_item_attributes(ws_item_id)
-            ws_attrs = ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
+            ws_attrs = ws_response if isinstance(ws_response, list) else ws_response.get("attributes", []) if isinstance(ws_response, dict) else []
             _update_existing_attrs(dd_item_id, ws_attrs)
             items_processed += 1
         except Exception as e:
             errors.append(f"{item['name']}: {e}")
 
+        _remove_deleted_children(ws_item_id, dd_item_id)
         _discover_children(ws_item_id, dd_item_id)
 
     parts = []
@@ -551,6 +570,8 @@ async def refresh_from_workspace(
         parts.append(f"{linked_items} item(ns) vinculado(s) ao workspace")
     if new_items:
         parts.append(f"{new_items} item(ns) novo(s) descoberto(s)")
+    if removed_items:
+        parts.append(f"{removed_items} item(ns) removido(s)")
 
     return {
         "message": f"Atualização concluída: {', '.join(parts)}." if parts else "Nenhuma alteração.",
@@ -558,6 +579,7 @@ async def refresh_from_workspace(
         "updated_attributes": updated_attrs,
         "linked_items": linked_items,
         "new_items": new_items,
+        "removed_items": removed_items,
         "errors": errors,
     }
 

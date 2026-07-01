@@ -3,6 +3,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
+
 from auth import get_current_user
 from connections import get_connection, connect_environment
 from db_lighthouse import get_template_list, get_template_attributes_from_db
@@ -195,7 +196,12 @@ async def execute_copy(body: CopyExecuteRequest, user: dict = Depends(get_curren
 
         if sub_attrs and new_template_id:
             new_attrs_resp = dst_ws.get_template_attributes(new_template_id)
-            new_attrs = new_attrs_resp.get("attributes", []) if isinstance(new_attrs_resp, dict) else []
+            if isinstance(new_attrs_resp, list):
+                new_attrs = new_attrs_resp
+            elif isinstance(new_attrs_resp, dict):
+                new_attrs = new_attrs_resp.get("attributes", [])
+            else:
+                new_attrs = []
             name_to_new_id = {a["name"].strip().lower(): a["id"] for a in new_attrs}
 
             for sub in sub_attrs:
@@ -337,10 +343,11 @@ async def import_excel_template(
             if cat_id:
                 entry["categories"] = [cat_id]
 
+        entry["_type_str"] = source_to_type.get((data_source, data_type), "Manual Text")
+
         parent_val = _clean(row.get("parent")) if has_parent_col else ""
         if parent_val:
             entry["_parent_name"] = parent_val
-            entry["_type_str"] = source_to_type.get((data_source, data_type), "Manual Text")
             sub_attrs.append(entry)
         else:
             root_attrs.append(entry)
@@ -351,7 +358,7 @@ async def import_excel_template(
     payload = {
         "name": template_name,
         "description": description,
-        "attributes": root_attrs,
+        "attributes": [],
     }
 
     response = ws.post_template(payload)
@@ -363,46 +370,79 @@ async def import_excel_template(
     new_template = response.json()
     new_template_id = new_template.get("id", "")
 
+    def _create_attr(attr, parent_id=None):
+        type_str = attr.get("_type_str", "Manual Text")
+        raw_default = attr.get("default_value", "")
+        if not raw_default and ("Float" in type_str or "Integer" in type_str):
+            clean_default = None
+        else:
+            clean_default = raw_default if raw_default else None
+
+        attr_payload = {
+            "name": attr["name"],
+            "description": attr.get("description", ""),
+            "type": type_str,
+            "unit_of_measurement": attr.get("unit_of_measurement", ""),
+            "decimal_places": attr.get("decimal_places", 0),
+            "default_value": clean_default,
+            "categories": attr.get("categories", []),
+        }
+        if parent_id:
+            attr_payload["parent_id"] = parent_id
+
+        resp = ws.post_template_attribute(new_template_id, attr_payload)
+        if hasattr(resp, "status_code") and resp.status_code not in (200, 201):
+            return f"HTTP {resp.status_code} — {getattr(resp, 'text', '')}"
+        return None
+
+    root_created = 0
+    attr_errors = []
+
+    for attr in root_attrs:
+        try:
+            err = _create_attr(attr)
+            if err:
+                attr_errors.append(f"{attr['name']}: {err}")
+            else:
+                root_created += 1
+        except Exception as e:
+            attr_errors.append(f"{attr['name']}: {e}")
+
     sub_created = 0
-    sub_errors = []
 
     if sub_attrs and new_template_id:
         new_attrs_resp = ws.get_template_attributes(new_template_id)
-        new_attrs = new_attrs_resp.get("attributes", []) if isinstance(new_attrs_resp, dict) else []
+        if isinstance(new_attrs_resp, list):
+            new_attrs = new_attrs_resp
+        elif isinstance(new_attrs_resp, dict):
+            new_attrs = new_attrs_resp.get("attributes", [])
+        else:
+            new_attrs = []
         name_to_id = {a["name"].strip().lower(): a["id"] for a in new_attrs}
 
         for sub in sub_attrs:
             parent_name = sub.pop("_parent_name", "")
-            type_str = sub.pop("_type_str", "Manual Text")
             parent_id = name_to_id.get(parent_name.lower())
             if not parent_id:
-                sub_errors.append(f"Pai '{parent_name}' não encontrado para subatributo '{sub['name']}'")
+                attr_errors.append(f"Pai '{parent_name}' não encontrado para subatributo '{sub['name']}'")
                 continue
-            sub_payload = {
-                "name": sub["name"],
-                "description": sub.get("description", ""),
-                "type": type_str,
-                "unit_of_measurement": sub.get("unit_of_measurement", ""),
-                "decimal_places": sub.get("decimal_places", 0),
-                "default_value": sub.get("default_value", ""),
-                "parent_id": parent_id,
-            }
-            if "categories" in sub:
-                sub_payload["categories"] = sub["categories"]
             try:
-                ws.post_template_attribute(new_template_id, sub_payload)
-                sub_created += 1
+                err = _create_attr(sub, parent_id=parent_id)
+                if err:
+                    attr_errors.append(f"{sub['name']}: {err}")
+                else:
+                    sub_created += 1
             except Exception as e:
-                sub_errors.append(f"{sub['name']}: {e}")
+                attr_errors.append(f"{sub['name']}: {e}")
 
-    total = len(root_attrs) + sub_created
+    total = root_created + sub_created
 
     return {
         "message": f"Template '{template_name}' criado com {total} atributo(s).",
         "template_id": new_template_id,
-        "root_attributes": len(root_attrs),
+        "root_attributes": root_created,
         "sub_attributes": sub_created,
-        "sub_errors": sub_errors,
+        "errors": attr_errors,
     }
 
 

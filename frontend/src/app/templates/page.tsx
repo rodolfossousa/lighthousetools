@@ -156,7 +156,7 @@ function CreateTemplateSection() {
       formData.append("client_name", client);
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch("http://localhost:8001/api/templates/import-excel", {
+      const res = await fetch("http://localhost:8002/api/templates/import-excel", {
         method: "POST", headers, body: formData,
       });
       const body = await res.json().catch(() => ({ detail: res.statusText }));

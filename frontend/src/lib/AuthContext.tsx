@@ -18,7 +18,7 @@ const AuthContext = createContext<AuthState>({
   logout: () => {},
 });
 
-const API_URL = "http://localhost:8001/api";
+const API_URL = "http://localhost:8002/api";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);

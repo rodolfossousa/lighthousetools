@@ -135,7 +135,7 @@ async def item_attributes(
 ):
     ws = _get_or_connect(user["id"], environment, client_name)
     response = ws.get_item_attributes(item_id)
-    ws_attrs = response.get("attributes", []) if isinstance(response, dict) else []
+    ws_attrs = response if isinstance(response, list) else response.get("attributes", []) if isinstance(response, dict) else []
     return [_transform_attribute(a) for a in ws_attrs]
 
 
@@ -148,7 +148,7 @@ async def item_subattributes(
 ):
     ws = _get_or_connect(user["id"], environment, client_name)
     response = ws.get_item_attributes(item_id)
-    ws_attrs = response.get("attributes", []) if isinstance(response, dict) else []
+    ws_attrs = response if isinstance(response, list) else response.get("attributes", []) if isinstance(response, dict) else []
     return _extract_subattributes(ws_attrs)
 
 
